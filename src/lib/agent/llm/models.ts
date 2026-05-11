@@ -18,12 +18,39 @@ export function getApiKey(): string {
 export const PRIMARY_LLM_MODEL =
   process.env.OPENROUTER_LLM_MODEL?.trim() || "anthropic/claude-sonnet-4";
 
-/** Цепочка фоллбеков: если primary упал — пытаемся по очереди. */
-export const LLM_FALLBACKS: string[] = [
-  "google/gemini-2.5-flash",
-  "deepseek/deepseek-chat-v3-0324:free",
-  "meta-llama/llama-4-maverick:free",
+/**
+ * Цепочка фоллбеков: только стабильные id с OpenRouter (без «:free» — такие модели часто снимают).
+ * Переопределение: OPENROUTER_LLM_FALLBACKS=m1,m2,m3
+ */
+function parseFallbacksFromEnv(): string[] | null {
+  const raw = process.env.OPENROUTER_LLM_FALLBACKS?.trim();
+  if (!raw) return null;
+  const list = raw
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : null;
+}
+
+const DEFAULT_LLM_FALLBACKS: string[] = [
+  "openai/gpt-4o-mini",
+  "google/gemini-2.0-flash-001",
+  "deepseek/deepseek-chat",
 ];
+
+export const LLM_FALLBACKS: string[] =
+  parseFallbacksFromEnv() ?? DEFAULT_LLM_FALLBACKS;
+
+/** Потолок completion-токенов на один запрос (меньше — меньше списание при малом балансе OpenRouter). */
+const DEFAULT_MAX_COMPLETION_TOKENS = 1024;
+
+export function getAgentMaxCompletionTokens(): number {
+  const raw = process.env.OPENROUTER_MAX_COMPLETION_TOKENS?.trim();
+  if (!raw) return DEFAULT_MAX_COMPLETION_TOKENS;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return DEFAULT_MAX_COMPLETION_TOKENS;
+  return Math.min(8192, Math.max(64, n));
+}
 
 export const PRIMARY_EMBEDDING_MODEL =
   process.env.OPENROUTER_EMBEDDING_MODEL?.trim() || "openai/text-embedding-3-large";
@@ -35,10 +62,14 @@ export const EMBEDDING_DIMENSIONS = 1536;
 /** HTTP-статусы, при которых уходим на следующую модель и НЕ падаем. */
 export const RETRYABLE_STATUSES = new Set([402, 404, 429, 503]);
 
-/** Жёсткий потолок max_tokens для бюджетных моделей. */
-export function pickMaxTokens(_model: string, requested: number): number {
-  if (requested > 4096) return 4096;
-  return requested;
+/** Потолок max_tokens на запрос (учитывает OPENROUTER_MAX_COMPLETION_TOKENS и суффикс :free). */
+export function pickMaxTokens(model: string, requested: number): number {
+  const budget = getAgentMaxCompletionTokens();
+  let cap = Math.min(requested, budget);
+  if (/:free\b/i.test(model)) {
+    cap = Math.min(cap, 512);
+  }
+  return Math.max(64, cap);
 }
 
 /** Полная цепочка моделей (primary + фоллбеки без дублей) */

@@ -9,6 +9,7 @@ import {
   RETRYABLE_STATUSES,
   buildLlmChain,
   getApiKey,
+  getAgentMaxCompletionTokens,
   pickMaxTokens,
   DEFAULT_HTTP_TIMEOUT_MS,
 } from "@/lib/agent/llm/models";
@@ -71,7 +72,7 @@ export async function chatCompletion(
   const apiKey = getApiKey();
   const chain = buildLlmChain(input.model ?? null);
   const temperature = input.temperature ?? 0.3;
-  const maxTokens = input.maxTokens ?? 4096;
+  const maxTokens = input.maxTokens ?? getAgentMaxCompletionTokens();
 
   const attempts: ChatCompletionResult["attempts"] = [];
   let lastError: string | null = null;

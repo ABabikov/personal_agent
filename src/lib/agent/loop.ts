@@ -8,6 +8,7 @@ import {
   type ChatCompletionResult,
   type ChatMessageForApi,
 } from "@/lib/agent/llm/openrouter";
+import { getAgentMaxCompletionTokens } from "@/lib/agent/llm/models";
 import { runTool, toolsToSpecs } from "@/lib/agent/tools";
 import { buildSystemPrompt } from "@/lib/agent/prompts/system";
 import {
@@ -91,7 +92,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       tools,
       toolChoice: "auto",
       temperature: 0.3,
-      maxTokens: 3072,
+      maxTokens: getAgentMaxCompletionTokens(),
     });
 
     const step: AgentRunStep = {
