@@ -10,6 +10,59 @@ function envUserId(): string | null {
   return v && v.length > 0 ? v : null;
 }
 
+function readStoredUserId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredUserId(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, id);
+  } catch {
+    // приватный режим / ITP — работаем без кэша, данные всё равно подтянутся с сервера
+  }
+}
+
+/** Ответ /api/workout-user за сессию вкладки (не дергать на каждый экран). */
+let serverUserIdMemo: string | null | undefined;
+
+/** Серверный WORKOUT_USER_ID — один UUID для всех устройств (см. /api/workout-user). */
+async function fetchServerWorkoutUserId(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  if (serverUserIdMemo !== undefined) return serverUserIdMemo;
+  try {
+    const r = await fetch("/api/workout-user", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!r.ok) {
+      serverUserIdMemo = null;
+      return null;
+    }
+    const j: unknown = await r.json();
+    if (
+      j &&
+      typeof j === "object" &&
+      "userId" in j &&
+      typeof (j as { userId: unknown }).userId === "string"
+    ) {
+      const id = (j as { userId: string }).userId.trim();
+      serverUserIdMemo = id.length > 0 ? id : null;
+      return serverUserIdMemo;
+    }
+    serverUserIdMemo = null;
+    return null;
+  } catch {
+    serverUserIdMemo = null;
+    return null;
+  }
+}
+
 /** Minimal row so PostgREST accepts the insert with strict generated types */
 function blankUserRow(): UserInsert {
   return {
@@ -38,7 +91,13 @@ export async function getWorkoutUserId(): Promise<
     return { error: "Сохранение только в браузере." };
   }
 
-  const cached = window.localStorage.getItem(STORAGE_KEY);
+  const fromServer = await fetchServerWorkoutUserId();
+  if (fromServer) {
+    writeStoredUserId(fromServer);
+    return { userId: fromServer };
+  }
+
+  const cached = readStoredUserId();
   if (cached) return { userId: cached };
 
   const { data, error } = await supabase
@@ -57,6 +116,6 @@ export async function getWorkoutUserId(): Promise<
     };
   }
 
-  window.localStorage.setItem(STORAGE_KEY, data.id);
+  writeStoredUserId(data.id);
   return { userId: data.id };
 }
