@@ -1,90 +1,119 @@
-import Link from "next/link";
-import { Dumbbell, Waves, CalendarDays } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Dumbbell, Waves, Flame, TrendingUp } from "lucide-react";
+import { StatCard } from "@/components/dashboard/stat-card";
+import { QuickAction } from "@/components/dashboard/quick-action";
+import { WorkoutItem } from "@/components/dashboard/workout-item";
 
 export default function HomePage() {
+  // Mock data - will be replaced with real data from Supabase
+  const weeklyStats = {
+    workouts: 0,
+    tonnage: 0,
+    distance: 0,
+    calories: 0,
+  };
+
+  const recentWorkouts: {
+    id: string;
+    type: "gym" | "swim";
+    date: string;
+    value: number;
+    unit: string;
+    exercises?: number;
+  }[] = [];
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <CalendarDays className="size-5" />
-        <h2 className="text-xl font-semibold">Спортивный календарь</h2>
-      </div>
+      {/* Week stats */}
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">
+          Эта неделя
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            icon={TrendingUp}
+            label="Тренировок"
+            value={weeklyStats.workouts}
+            variant="default"
+          />
+          <StatCard
+            icon={Flame}
+            label="Калорий"
+            value={weeklyStats.calories}
+            unit="ккал"
+            variant="default"
+          />
+          <StatCard
+            icon={Dumbbell}
+            label="Тоннаж"
+            value={weeklyStats.tonnage.toLocaleString("ru")}
+            unit="кг"
+            variant="gym"
+          />
+          <StatCard
+            icon={Waves}
+            label="Метраж"
+            value={weeklyStats.distance.toLocaleString("ru")}
+            unit="м"
+            variant="swim"
+          />
+        </div>
+      </section>
 
-      {/* Статистика недели (заглушки) */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-xs text-muted-foreground mt-0.5">тренировок</p>
-            <p className="text-xs text-muted-foreground">на этой неделе</p>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-xs text-muted-foreground mt-0.5">кг тоннаж</p>
-            <p className="text-xs text-muted-foreground">за неделю</p>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-xs text-muted-foreground mt-0.5">м метраж</p>
-            <p className="text-xs text-muted-foreground">за неделю</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Quick actions */}
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">
+          Добавить тренировку
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <QuickAction
+            href="/gym"
+            icon={Dumbbell}
+            title="Силовая"
+            subtitle="Зал"
+            variant="gym"
+          />
+          <QuickAction
+            href="/swim"
+            icon={Waves}
+            title="Плавание"
+            subtitle="Бассейн"
+            variant="swim"
+          />
+        </div>
+      </section>
 
-      {/* Быстрые действия */}
-      <div className="grid grid-cols-2 gap-3">
-        <Link
-          href="/gym"
-          className={cn(
-            buttonVariants({ size: "lg", variant: "default" }),
-            "h-auto py-4 flex-col gap-1"
-          )}
-        >
-          <Dumbbell className="size-5" />
-          <span>Добавить</span>
-          <span className="text-xs opacity-80 font-normal">силовую</span>
-        </Link>
-        <Link
-          href="/swim"
-          className={cn(
-            buttonVariants({ size: "lg", variant: "outline" }),
-            "h-auto py-4 flex-col gap-1"
-          )}
-        >
-          <Waves className="size-5" />
-          <span>Добавить</span>
-          <span className="text-xs opacity-70 font-normal">плавание</span>
-        </Link>
-      </div>
-
-      {/* Пустое состояние */}
-      <Card>
-        <CardHeader>
-          <CardTitle>История тренировок</CardTitle>
-          <CardDescription>
-            Здесь будут отображаться все тренировки в хронологическом порядке.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-6">
-            Тренировок пока нет.
-            <br />
-            Добавьте первую тренировку через кнопки выше.
-          </p>
-        </CardContent>
-      </Card>
+      {/* Recent workouts */}
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">
+          История тренировок
+        </h2>
+        {recentWorkouts.length > 0 ? (
+          <div className="space-y-2">
+            {recentWorkouts.map((workout) => (
+              <WorkoutItem
+                key={workout.id}
+                type={workout.type}
+                date={workout.date}
+                value={workout.value}
+                unit={workout.unit}
+                exercises={workout.exercises}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
+            <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-muted">
+              <TrendingUp className="size-5 text-muted-foreground" />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Тренировок пока нет
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              Добавьте первую тренировку через кнопки выше
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

@@ -1,16 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Trash2, Waves } from "lucide-react";
+import { Plus, Waves, ChevronDown, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { totalDistance } from "@/lib/features/swimming/distance";
 import {
-  swimWorkoutToSeriesInputs,
+  SwimSeriesCard,
   type SwimSeriesInput,
-} from "@/lib/features/workouts/swimFormFromSeed";
+} from "@/components/workout/swim-series-card";
+import { TotalCard } from "@/components/workout/total-card";
+import { totalDistance } from "@/lib/features/swimming/distance";
+import { swimWorkoutToSeriesInputs } from "@/lib/features/workouts/swimFormFromSeed";
 import type { ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
 import { useWorkoutSeed } from "@/hooks/use-workout-seed";
 import type { SwimDayKey } from "@/lib/features/workouts/workoutSeedTypes";
@@ -36,32 +38,31 @@ function defaultSwimDay(): SwimDayKey {
   return "vt";
 }
 
-const SWIM_LABELS: Record<SwimDayKey, string> = {
+const DAY_LABELS: Record<SwimDayKey, string> = {
+  vt: "Вторник — Смешанные стили",
+  cht: "Четверг — Брасс",
+  sb: "Суббота — Кроль",
+};
+
+const DAY_SHORT: Record<SwimDayKey, string> = {
   vt: "Вт",
   cht: "Чт",
   sb: "Сб",
 };
 
-const DESCRIPTION_HINTS = [
-  "кроль",
-  "брасс",
-  "спина",
-  "баттерфляй",
-  "ласты",
-  "лопатки",
-  "трубка",
-  "колобашка",
-  "80%",
-  "отдых 30\"",
-];
-
-function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | null }) {
+function SwimWorkoutEditor({
+  lastWorkout,
+}: {
+  lastWorkout: ParsedSwimWorkout | null;
+}) {
   const [date, setDate] = useState(todayString);
   const [series, setSeries] = useState<SwimSeriesInput[]>(() =>
     lastWorkout ? swimWorkoutToSeriesInputs(lastWorkout) : [newSeries()]
   );
   const [notes, setNotes] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
+    "idle"
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
 
   function applyLast() {
@@ -77,13 +78,15 @@ function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | n
     setSeries((prev) => prev.filter((s) => s.id !== id));
   }
 
-  function updateField(
-    id: string,
-    field: "distance" | "description",
-    value: string
-  ) {
+  function updateDistance(id: string, distance: string) {
     setSeries((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+      prev.map((s) => (s.id === id ? { ...s, distance } : s))
+    );
+  }
+
+  function updateDescription(id: string, description: string) {
+    setSeries((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, description } : s))
     );
   }
 
@@ -117,159 +120,107 @@ function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | n
   }
 
   return (
-    <>
-      <Card>
-        <CardContent className="pt-4 space-y-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!lastWorkout}
-            onClick={applyLast}
-          >
-            Подставить последнюю из таблицы
-          </Button>
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      {/* Prefill action */}
+      {lastWorkout && (
+        <Button variant="outline" size="sm" onClick={applyLast}>
+          <RotateCcw className="size-3.5" />
+          <span>Подставить последнюю</span>
+        </Button>
+      )}
 
+      {/* Date */}
       <Card>
         <CardContent className="pt-4">
-          <div className="w-48">
+          <div className="w-40">
             <Label htmlFor="date">Дата</Label>
             <Input
               id="date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="mt-1"
+              className="mt-1.5"
             />
           </div>
         </CardContent>
       </Card>
 
+      {/* Series */}
       <div className="space-y-3">
         {series.map((s, idx) => (
-          <Card key={s.id}>
-            <CardHeader className="pb-2 border-b">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm shrink-0 w-5">
-                  {idx + 1}.
-                </span>
-                <div className="flex items-center gap-2 flex-1">
-                  <div className="w-28 shrink-0">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="25"
-                      placeholder="Метры"
-                      value={s.distance}
-                      onChange={(e) =>
-                        updateField(s.id, "distance", e.target.value)
-                      }
-                    />
-                  </div>
-                  <span className="text-muted-foreground text-sm shrink-0">м</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  type="button"
-                  onClick={() => removeSeries(s.id)}
-                  disabled={series.length === 1}
-                  className="shrink-0 text-muted-foreground"
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-3">
-              <Input
-                placeholder="Описание: стиль, интервалы, оборудование..."
-                value={s.description}
-                onChange={(e) =>
-                  updateField(s.id, "description", e.target.value)
-                }
-              />
-              <div className="mt-2 flex flex-wrap gap-1">
-                {DESCRIPTION_HINTS.map((hint) => (
-                  <button
-                    type="button"
-                    key={hint}
-                    onClick={() =>
-                      updateField(
-                        s.id,
-                        "description",
-                        s.description
-                          ? `${s.description} ${hint}`
-                          : hint
-                      )
-                    }
-                    className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                  >
-                    {hint}
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <SwimSeriesCard
+            key={s.id}
+            series={s}
+            index={idx}
+            canDelete={series.length > 1}
+            onDistanceChange={(distance) => updateDistance(s.id, distance)}
+            onDescriptionChange={(description) =>
+              updateDescription(s.id, description)
+            }
+            onDelete={() => removeSeries(s.id)}
+          />
         ))}
       </div>
 
-      <Button variant="outline" onClick={addSeries} className="w-full" type="button">
-        <Plus />
-        Добавить серию
+      {/* Add series */}
+      <Button
+        variant="outline"
+        onClick={addSeries}
+        className="w-full border-dashed"
+      >
+        <Plus className="size-4" />
+        <span>Добавить серию</span>
       </Button>
 
-      {total > 0 && (
-        <Card className="bg-primary text-primary-foreground ring-0">
-          <CardContent className="pt-4">
-            <div className="flex justify-between items-center">
-              <span className="opacity-80">Общий метраж</span>
-              <span className="text-2xl font-bold">
-                {total.toLocaleString("ru")} м
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Total distance */}
+      <TotalCard
+        icon={Waves}
+        label="Общий метраж"
+        value={total}
+        unit="м"
+        variant="swim"
+      />
 
+      {/* Notes */}
       <div>
-        <Label htmlFor="notes">Заметки (необязательно)</Label>
+        <Label htmlFor="notes">Заметки</Label>
         <textarea
           id="notes"
-          placeholder="Самочувствие, темп, особенности тренировки..."
+          placeholder="Самочувствие, темп, особенности..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 min-h-[72px] resize-none"
+          className="mt-1.5 w-full rounded-xl border border-input bg-card px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px] resize-none"
         />
       </div>
 
+      {/* Error */}
       {saveError && (
         <p className="text-sm text-destructive" role="alert">
           {saveError}
         </p>
       )}
 
+      {/* Save button */}
       <Button
         onClick={handleSave}
-        className="w-full"
+        className="w-full bg-swim hover:bg-swim/90 text-swim-foreground"
         size="lg"
-        type="button"
         disabled={saveState === "saving"}
       >
         {saveState === "saving"
-          ? "Сохранение…"
+          ? "Сохранение..."
           : saveState === "saved"
-            ? "Сохранено ✓"
+            ? "Сохранено"
             : "Сохранить тренировку"}
       </Button>
-    </>
+    </div>
   );
 }
 
 export default function SwimPage() {
   const { seed, error: seedError, loading: seedLoading } = useWorkoutSeed();
   const [swimDay, setSwimDay] = useState<SwimDayKey>(defaultSwimDay);
+  const [showDayPicker, setShowDayPicker] = useState(false);
 
   const lastWorkout = useMemo(() => {
     if (!seed) return null;
@@ -279,59 +230,85 @@ export default function SwimPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Waves className="size-5" />
-        <h2 className="text-xl font-semibold">Плавательная тренировка</h2>
+      {/* Page header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-swim/15">
+            <Waves className="size-5 text-swim" />
+          </div>
+          <h1 className="text-lg font-semibold">Плавание</h1>
+        </div>
       </div>
 
+      {/* Loading/Error states */}
       {seedLoading && (
-        <p className="text-sm text-muted-foreground">Загрузка данных из таблицы…</p>
+        <p className="text-sm text-muted-foreground">Загрузка данных...</p>
       )}
       {seedError && (
-        <p className="text-sm text-destructive">
-          Нет файла импорта: {seedError}. Выполни{" "}
-          <code className="rounded bg-muted px-1">npm run build:seed</code> — появится{" "}
-          <code className="rounded bg-muted px-1">public/data/workout-seed.json</code>.
-        </p>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-sm text-muted-foreground">
+              Нет импортированных данных. Выполните{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                npm run build:seed
+              </code>
+            </p>
+          </CardContent>
+        </Card>
       )}
 
-      <Card>
-        <CardContent className="pt-4 space-y-3">
+      {/* Day picker */}
+      <div className="relative">
+        <button
+          onClick={() => setShowDayPicker(!showDayPicker)}
+          className="flex w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-accent"
+        >
           <div>
-            <Label htmlFor="swim-day">День (лист из таблицы)</Label>
-            <select
-              id="swim-day"
-              value={swimDay}
-              onChange={(e) => setSwimDay(e.target.value as SwimDayKey)}
-              className="mt-1 flex h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              {(Object.keys(SWIM_LABELS) as SwimDayKey[]).map((k) => (
-                <option key={k} value={k}>
-                  {SWIM_LABELS[k]}
-                </option>
-              ))}
-            </select>
+            <p className="text-sm font-medium">{DAY_LABELS[swimDay]}</p>
+            {lastWorkout && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Последняя:{" "}
+                {new Date(lastWorkout.date + "T12:00:00").toLocaleDateString(
+                  "ru",
+                  { day: "numeric", month: "short" }
+                )}
+                {lastWorkout.totalDistance != null && (
+                  <> — {lastWorkout.totalDistance.toLocaleString("ru")} м</>
+                )}
+              </p>
+            )}
           </div>
-          {lastWorkout && (
-            <p className="text-xs text-muted-foreground">
-              Последняя в импорте:{" "}
-              <span className="font-medium text-foreground">
-                {new Date(lastWorkout.date + "T12:00:00").toLocaleDateString("ru")}
-              </span>
-              {lastWorkout.totalDistance != null && (
-                <>
-                  {" "}
-                  · {lastWorkout.totalDistance.toLocaleString("ru")} м
-                </>
-              )}
-              {lastWorkout.durationMinutes != null && (
-                <> · ~{lastWorkout.durationMinutes} мин</>
-              )}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+          <ChevronDown
+            className={`size-4 text-muted-foreground transition-transform ${
+              showDayPicker ? "rotate-180" : ""
+            }`}
+          />
+        </button>
 
+        {showDayPicker && (
+          <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+            {(Object.keys(DAY_LABELS) as SwimDayKey[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => {
+                  setSwimDay(k);
+                  setShowDayPicker(false);
+                }}
+                className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent ${
+                  swimDay === k ? "bg-accent" : ""
+                }`}
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-swim/15 text-sm font-medium text-swim">
+                  {DAY_SHORT[k]}
+                </span>
+                <span className="text-sm">{DAY_LABELS[k]}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Workout editor */}
       {seed && (
         <SwimWorkoutEditor
           key={`${swimDay}-${seed.generatedAt}`}

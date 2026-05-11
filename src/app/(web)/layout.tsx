@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Header } from "@/components/navigation/header";
+import { BottomNav } from "@/components/navigation/bottom-nav";
 
 export default function WebLayout({
   children,
@@ -6,17 +7,12 @@ export default function WebLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">Personal Agent</h1>
-        <nav className="mt-2 flex gap-4 text-sm">
-          <Link href="/" className="hover:underline">Календарь</Link>
-          <Link href="/gym" className="hover:underline">Зал</Link>
-          <Link href="/swim" className="hover:underline">Плавание</Link>
-          <Link href="/profile" className="hover:underline">Профиль</Link>
-        </nav>
-      </header>
-      <main>{children}</main>
+    <div className="flex min-h-dvh flex-col bg-background">
+      <Header />
+      <main className="flex-1 px-4 pb-20 pt-4">
+        <div className="mx-auto max-w-lg">{children}</div>
+      </main>
+      <BottomNav />
     </div>
   );
 }
