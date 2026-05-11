@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -12,9 +12,12 @@ import {
   type SwimSeriesInput,
 } from "@/lib/features/workouts/swimFormFromSeed";
 import type { ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
-import { useWorkoutSeed } from "@/hooks/use-workout-seed";
-import type { SwimDayKey } from "@/lib/features/workouts/workoutSeedTypes";
 import { saveSwimWorkoutToSupabase } from "@/lib/db/saveWorkout";
+import { getWorkoutUserId } from "@/lib/db/workoutUserId";
+import {
+  fetchLastSwimWorkoutFromDb,
+  type LastSwimFromDb,
+} from "@/lib/db/fetchLastWorkoutTemplates";
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -27,20 +30,6 @@ function newSeries(): SwimSeriesInput {
 function todayString() {
   return new Date().toISOString().split("T")[0];
 }
-
-function defaultSwimDay(): SwimDayKey {
-  const dow = new Date().getDay();
-  if (dow === 2) return "vt";
-  if (dow === 4) return "cht";
-  if (dow === 6) return "sb";
-  return "vt";
-}
-
-const SWIM_LABELS: Record<SwimDayKey, string> = {
-  vt: "Вт",
-  cht: "Чт",
-  sb: "Сб",
-};
 
 const DESCRIPTION_HINTS = [
   "кроль",
@@ -55,7 +44,13 @@ const DESCRIPTION_HINTS = [
   "отдых 30\"",
 ];
 
-function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | null }) {
+function SwimWorkoutEditor({
+  lastWorkout,
+  onSaveSuccess,
+}: {
+  lastWorkout: ParsedSwimWorkout | null;
+  onSaveSuccess?: () => void;
+}) {
   const [date, setDate] = useState(todayString);
   const [series, setSeries] = useState<SwimSeriesInput[]>(() =>
     lastWorkout ? swimWorkoutToSeriesInputs(lastWorkout) : [newSeries()]
@@ -114,6 +109,7 @@ function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | n
 
     setSaveState("saved");
     setTimeout(() => setSaveState("idle"), 2000);
+    onSaveSuccess?.();
   }
 
   return (
@@ -127,7 +123,7 @@ function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | n
             disabled={!lastWorkout}
             onClick={applyLast}
           >
-            Подставить последнюю из таблицы
+            Подставить последнюю из базы
           </Button>
         </CardContent>
       </Card>
@@ -268,14 +264,42 @@ function SwimWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedSwimWorkout | n
 }
 
 export default function SwimPage() {
-  const { seed, error: seedError, loading: seedLoading } = useWorkoutSeed();
-  const [swimDay, setSwimDay] = useState<SwimDayKey>(defaultSwimDay);
+  const [hydrated, setHydrated] = useState(false);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [lastFetchError, setLastFetchError] = useState<string | null>(null);
+  const [lastTemplate, setLastTemplate] = useState<LastSwimFromDb | null>(null);
 
-  const lastWorkout = useMemo(() => {
-    if (!seed) return null;
-    const dayList = seed.swim[swimDay] ?? [];
-    return dayList.length ? dayList[dayList.length - 1]! : null;
-  }, [seed, swimDay]);
+  const refreshLast = useCallback(async () => {
+    const user = await getWorkoutUserId();
+    if ("error" in user) {
+      setUserError(user.error);
+      setLastFetchError(null);
+      setLastTemplate(null);
+      return;
+    }
+    setUserError(null);
+    const res = await fetchLastSwimWorkoutFromDb(user.userId);
+    if ("error" in res) {
+      setLastFetchError(res.error);
+      setLastTemplate(null);
+    } else {
+      setLastFetchError(null);
+      setLastTemplate(res.data);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await refreshLast();
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshLast]);
+
+  const lastParsed = lastTemplate?.parsed ?? null;
 
   return (
     <div className="space-y-4">
@@ -284,58 +308,46 @@ export default function SwimPage() {
         <h2 className="text-xl font-semibold">Плавательная тренировка</h2>
       </div>
 
-      {seedLoading && (
-        <p className="text-sm text-muted-foreground">Загрузка данных из таблицы…</p>
+      {!hydrated && (
+        <p className="text-sm text-muted-foreground">Загрузка из Supabase…</p>
       )}
-      {seedError && (
-        <p className="text-sm text-destructive">
-          Нет файла импорта: {seedError}. Выполни{" "}
-          <code className="rounded bg-muted px-1">npm run build:seed</code> — появится{" "}
-          <code className="rounded bg-muted px-1">public/data/workout-seed.json</code>.
+      {userError && (
+        <p className="text-sm text-destructive" role="alert">
+          {userError}
+        </p>
+      )}
+      {lastFetchError && !userError && (
+        <p className="text-sm text-destructive" role="alert">
+          Не удалось загрузить последнюю тренировку: {lastFetchError}
         </p>
       )}
 
-      <Card>
-        <CardContent className="pt-4 space-y-3">
-          <div>
-            <Label htmlFor="swim-day">День (лист из таблицы)</Label>
-            <select
-              id="swim-day"
-              value={swimDay}
-              onChange={(e) => setSwimDay(e.target.value as SwimDayKey)}
-              className="mt-1 flex h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              {(Object.keys(SWIM_LABELS) as SwimDayKey[]).map((k) => (
-                <option key={k} value={k}>
-                  {SWIM_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </div>
-          {lastWorkout && (
+      {hydrated && !userError && lastParsed && (
+        <Card>
+          <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">
-              Последняя в импорте:{" "}
+              Последняя в базе:{" "}
               <span className="font-medium text-foreground">
-                {new Date(lastWorkout.date + "T12:00:00").toLocaleDateString("ru")}
+                {new Date(lastParsed.date + "T12:00:00").toLocaleDateString("ru")}
               </span>
-              {lastWorkout.totalDistance != null && (
+              {lastParsed.totalDistance != null && (
                 <>
                   {" "}
-                  · {lastWorkout.totalDistance.toLocaleString("ru")} м
+                  · {lastParsed.totalDistance.toLocaleString("ru")} м
                 </>
               )}
-              {lastWorkout.durationMinutes != null && (
-                <> · ~{lastWorkout.durationMinutes} мин</>
+              {lastParsed.durationMinutes != null && (
+                <> · ~{lastParsed.durationMinutes} мин</>
               )}
             </p>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {seed && (
+      {hydrated && !userError && (
         <SwimWorkoutEditor
-          key={`${swimDay}-${seed.generatedAt}`}
-          lastWorkout={lastWorkout}
+          lastWorkout={lastParsed}
+          onSaveSuccess={() => void refreshLast()}
         />
       )}
     </div>

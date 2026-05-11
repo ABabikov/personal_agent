@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:seed": "tsx scripts/build-workout-seed.ts",
+    "seed:supabase": "tsx scripts/seed-workouts-to-supabase.ts",
+    "seed:supabase:dry": "tsx scripts/seed-workouts-to-supabase.ts --dry-run",
     "start": "next start",
     "lint": "eslint"
   },

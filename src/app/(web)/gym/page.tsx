@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Plus, Trash2, Dumbbell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,10 +17,13 @@ import {
   type SetInput,
 } from "@/lib/features/workouts/gymFormFromSeed";
 import type { ParsedGymWorkout } from "@/lib/features/workouts/csvImport";
-import { useWorkoutSeed } from "@/hooks/use-workout-seed";
-import type { GymDayKey } from "@/lib/features/workouts/workoutSeedTypes";
 import type { GymSet } from "@/types/database";
 import { saveGymWorkoutToSupabase } from "@/lib/db/saveWorkout";
+import { getWorkoutUserId } from "@/lib/db/workoutUserId";
+import {
+  fetchLastGymWorkoutFromDb,
+  type LastGymFromDb,
+} from "@/lib/db/fetchLastWorkoutTemplates";
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -49,21 +52,13 @@ function todayString() {
   return new Date().toISOString().split("T")[0];
 }
 
-function defaultGymDay(): GymDayKey {
-  const dow = new Date().getDay();
-  if (dow === 1) return "pn";
-  if (dow === 3) return "sr";
-  if (dow === 5) return "pt";
-  return "pn";
-}
-
-const DAY_LABELS: Record<GymDayKey, string> = {
-  pn: "Пн (верх / тяги)",
-  sr: "Ср (ноги / жимы)",
-  pt: "Пт (грудь / руки)",
-};
-
-function GymWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedGymWorkout | null }) {
+function GymWorkoutEditor({
+  lastWorkout,
+  onSaveSuccess,
+}: {
+  lastWorkout: ParsedGymWorkout | null;
+  onSaveSuccess?: () => void;
+}) {
   const [date, setDate] = useState(todayString);
   const [bodyWeight, setBodyWeight] = useState(
     () =>
@@ -170,6 +165,7 @@ function GymWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedGymWorkout | nul
 
     setSaveState("saved");
     setTimeout(() => setSaveState("idle"), 2000);
+    onSaveSuccess?.();
   }
 
   return (
@@ -402,14 +398,42 @@ function GymWorkoutEditor({ lastWorkout }: { lastWorkout: ParsedGymWorkout | nul
 }
 
 export default function GymPage() {
-  const { seed, error: seedError, loading: seedLoading } = useWorkoutSeed();
-  const [gymDay, setGymDay] = useState<GymDayKey>(defaultGymDay);
+  const [hydrated, setHydrated] = useState(false);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [lastFetchError, setLastFetchError] = useState<string | null>(null);
+  const [lastTemplate, setLastTemplate] = useState<LastGymFromDb | null>(null);
 
-  const lastWorkout = useMemo(() => {
-    if (!seed) return null;
-    const dayList = seed.gym[gymDay] ?? [];
-    return dayList.length ? dayList[dayList.length - 1]! : null;
-  }, [seed, gymDay]);
+  const refreshLast = useCallback(async () => {
+    const user = await getWorkoutUserId();
+    if ("error" in user) {
+      setUserError(user.error);
+      setLastFetchError(null);
+      setLastTemplate(null);
+      return;
+    }
+    setUserError(null);
+    const res = await fetchLastGymWorkoutFromDb(user.userId);
+    if ("error" in res) {
+      setLastFetchError(res.error);
+      setLastTemplate(null);
+    } else {
+      setLastFetchError(null);
+      setLastTemplate(res.data);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await refreshLast();
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshLast]);
+
+  const lastParsed = lastTemplate?.parsed ?? null;
 
   return (
     <div className="space-y-4">
@@ -418,58 +442,46 @@ export default function GymPage() {
         <h2 className="text-xl font-semibold">Силовая тренировка</h2>
       </div>
 
-      {seedLoading && (
-        <p className="text-sm text-muted-foreground">Загрузка данных из таблицы…</p>
+      {!hydrated && (
+        <p className="text-sm text-muted-foreground">Загрузка из Supabase…</p>
       )}
-      {seedError && (
-        <p className="text-sm text-destructive">
-          Нет файла импорта: {seedError}. Выполни в корне проекта{" "}
-          <code className="rounded bg-muted px-1">npm run build:seed</code> — появится{" "}
-          <code className="rounded bg-muted px-1">public/data/workout-seed.json</code>.
+      {userError && (
+        <p className="text-sm text-destructive" role="alert">
+          {userError}
+        </p>
+      )}
+      {lastFetchError && !userError && (
+        <p className="text-sm text-destructive" role="alert">
+          Не удалось загрузить последнюю тренировку: {lastFetchError}
         </p>
       )}
 
-      <Card>
-        <CardContent className="pt-4 space-y-3">
-          <div>
-            <Label htmlFor="gym-day">День программы (лист из таблицы)</Label>
-            <select
-              id="gym-day"
-              value={gymDay}
-              onChange={(e) => setGymDay(e.target.value as GymDayKey)}
-              className="mt-1 flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              {(Object.keys(DAY_LABELS) as GymDayKey[]).map((k) => (
-                <option key={k} value={k}>
-                  {DAY_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </div>
-          {lastWorkout && (
+      {hydrated && !userError && lastParsed && (
+        <Card>
+          <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">
-              Последняя в импорте:{" "}
+              Последняя в базе:{" "}
               <span className="font-medium text-foreground">
-                {new Date(lastWorkout.date + "T12:00:00").toLocaleDateString("ru")}
+                {new Date(lastParsed.date + "T12:00:00").toLocaleDateString("ru")}
               </span>
-              {lastWorkout.totalTonnage != null && (
+              {lastParsed.totalTonnage != null && (
                 <>
                   {" "}
                   · тоннаж{" "}
-                  {Math.round(lastWorkout.totalTonnage).toLocaleString("ru")} кг
+                  {Math.round(lastParsed.totalTonnage).toLocaleString("ru")} кг
                 </>
               )}
-              . В форме —{" "}
+              . Кнопки ниже —{" "}
               <strong>прогрессия</strong> (+1 повтор; от 18+ — вес ↑, 12 повт).
             </p>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {seed && (
+      {hydrated && !userError && (
         <GymWorkoutEditor
-          key={`${gymDay}-${seed.generatedAt}`}
-          lastWorkout={lastWorkout}
+          lastWorkout={lastParsed}
+          onSaveSuccess={() => void refreshLast()}
         />
       )}
     </div>
