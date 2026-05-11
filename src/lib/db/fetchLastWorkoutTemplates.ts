@@ -23,6 +23,7 @@ export async function fetchLastGymWorkoutFromDb(
     .select("id, date, body_weight, total_tonnage")
     .eq("user_id", userId)
     .eq("type", "gym")
+    .is("deleted_at", null)
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
@@ -67,6 +68,7 @@ export async function fetchLastSwimWorkoutFromDb(
     .select("id, date, total_distance")
     .eq("user_id", userId)
     .eq("type", "swim")
+    .is("deleted_at", null)
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);

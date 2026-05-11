@@ -19,8 +19,8 @@
 | Language        | TypeScript                    | Один язык на весь проект                        |
 | UI              | React + Tailwind + shadcn/ui  | Быстрая разработка, адаптивность                |
 | TMA             | @telegram-apps/sdk            | Telegram Mini App как основной мобильный вход    |
-| LLM             | Vercel AI SDK + OpenRouter    | Агрегатор моделей, гибкость выбора              |
-| Embeddings      | OpenRouter                    | Качество поиска, единый провайдер               |
+| LLM             | OpenRouter (прямой fetch)     | Свой клиент с цепочкой фоллбеков (`anthropic/claude-sonnet-4` → gemini → deepseek → llama). Vercel AI SDK не нужен — лишний слой. |
+| Embeddings      | OpenRouter                    | `openai/text-embedding-3-large` (1536d) → `-3-small` фоллбек     |
 | DB              | Supabase (PostgreSQL + pgvector) | Реляционка + векторный поиск в одной базе    |
 | Auth            | Supabase Auth                 | Готово для multi-user в будущем                  |
 | Storage         | Supabase Storage (S3)         | Файлы, изображения при необходимости            |
@@ -45,10 +45,11 @@ personal_agent/
 │   │   └── features/               # UI по фичам
 │   ├── lib/
 │   │   ├── agent/
-│   │   │   ├── loop.ts             # ReAct loop (Vercel AI SDK)
-│   │   │   ├── tools/              # Tool definitions
-│   │   │   ├── prompts/            # System prompts
-│   │   │   └── context.ts          # Сборка контекста (pgvector search)
+│   │   │   ├── llm/                # openrouter + embeddings c фоллбеками
+│   │   │   ├── tools/              # 20 тулов на все ручки (read + write)
+│   │   │   ├── memory/             # store (chat_messages) + recall (pgvector)
+│   │   │   ├── prompts/            # System prompts (с инъекцией фактов/обрывков)
+│   │   │   └── loop.ts             # ReAct цикл, своя реализация
 │   │   ├── db/                     # Supabase client, queries
 │   │   ├── features/               # Бизнес-логика по фичам
 │   │   │   ├── workouts/
@@ -82,26 +83,30 @@ User → Chat → Agent Loop → Tool Call → lib/features/* → DB → Agent R
 
 ## Agent Loop
 
+Реализован, см. фичу [`docs/features/agent-core/`](features/agent-core/logic.md). Текущая схема:
+
 ```
-User Message
+POST /api/chat { userId, conversationId, message }
     ↓
-Context Assembly:
-  - system prompt
-  - pgvector search по chat_messages и user_context (top-N релевантных)
-  - user profile из БД
+loadConversation(...)            — вся история этого разговора из chat_messages
+recallContext(message, exclude=conversationId)
+    └─ embed → top-5 близких сообщений из ДРУГИХ разговоров + top-5 фактов из user_context
+saveUserMessage(...)              — пишем СРАЗУ, ещё до LLM, чтобы не потерять
     ↓
-LLM (OpenRouter → Claude / другая модель)
+build system prompt: характер + факты + обрывки прошлых разговоров + текущая дата
     ↓
-Tool Call? ──yes──→ Execute tool (lib/features/*) → result → back to LLM → repeat
-    │
-    no
+ReAct loop (≤6 итераций):
+  chatCompletion(...) ── OpenRouter с цепочкой фоллбеков
+        │
+        ├── tool_calls? ── для каждого → runTool() → пишем tool-сообщение, идём дальше
+        └── content       → saveAssistantMessage, выходим
     ↓
-Final Response → User
+return { finalAnswer, steps }     — steps содержит trace всех тулов для UI
 ```
 
-Tools = обёртки над функциями из `lib/features/`. Агент не ходит в БД напрямую.
+Цепочка моделей при ошибках 402/404/429/503 или throw: `anthropic/claude-sonnet-4 → google/gemini-2.5-flash → deepseek/deepseek-chat-v3-0324:free → meta-llama/llama-4-maverick:free`. Полный список попыток сохраняется в `result.attempts`.
 
-Потенциально: переход от ReAct к ручным пайплайнам для критичных сценариев, где нужен предсказуемый результат.
+Tools — 20 штук, разбиты по категориям (профиль / чтение тренировок / аналитика / запись / память). Каждый — обёртка над функциями из `lib/db/` и `lib/features/`. Все вызывают одну и ту же бизнес-логику, что и UI-формы.
 
 ## Data Model (Supabase PostgreSQL + pgvector)
 

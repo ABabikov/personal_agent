@@ -7,6 +7,10 @@
     "build": "next build",
     "seed:supabase": "tsx scripts/seed-workouts-to-supabase.ts",
     "seed:supabase:dry": "tsx scripts/seed-workouts-to-supabase.ts --dry-run",
+    "backfill:gym-calories": "tsx scripts/backfill-gym-calories.ts",
+    "backfill:gym-calories:dry": "tsx scripts/backfill-gym-calories.ts --dry-run",
+    "backup:sheets": "tsx scripts/backup-supabase-to-google-sheets.ts",
+    "backup:sheets:dry": "tsx scripts/backup-supabase-to-google-sheets.ts --dry-run",
     "start": "next start",
     "lint": "eslint"
   },
@@ -30,6 +34,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "googleapis": "^171.4.0",
     "tailwindcss": "^4",
     "tsx": "^4.19.4",
     "typescript": "^5"

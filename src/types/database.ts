@@ -13,6 +13,17 @@ export type PlanExercise = {
   last_weight: number;
 };
 
+export type ChatRole = "system" | "user" | "assistant" | "tool";
+
+export type ToolCallDescriptor = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -45,8 +56,16 @@ export interface Database {
           calories_estimated: number | null;
           notes: string | null;
           created_at: string;
+          deleted_at: string | null;
+          deleted_reason: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["workouts"]["Row"], "id" | "created_at">;
+        Insert: Omit<
+          Database["public"]["Tables"]["workouts"]["Row"],
+          "id" | "created_at" | "deleted_at" | "deleted_reason"
+        > & {
+          deleted_at?: string | null;
+          deleted_reason?: string | null;
+        };
         Update: Partial<Database["public"]["Tables"]["workouts"]["Insert"]>;
         Relationships: [
           {
@@ -114,6 +133,58 @@ export interface Database {
         Relationships: [
           {
             foreignKeyName: "workout_plans_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      chat_messages: {
+        Row: {
+          id: string;
+          user_id: string;
+          conversation_id: string;
+          role: ChatRole;
+          content: string;
+          tool_calls: ToolCallDescriptor[] | null;
+          tool_call_id: string | null;
+          tool_name: string | null;
+          embedding: number[] | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["chat_messages"]["Row"], "id" | "created_at"> & {
+          embedding?: number[] | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["chat_messages"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_context: {
+        Row: {
+          id: string;
+          user_id: string;
+          key: string;
+          value: string;
+          source: string | null;
+          embedding: number[] | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["user_context"]["Row"], "id" | "created_at" | "updated_at"> & {
+          embedding?: number[] | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_context"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "user_context_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";

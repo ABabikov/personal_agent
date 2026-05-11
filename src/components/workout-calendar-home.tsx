@@ -1,9 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Dumbbell, Waves, CalendarDays } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Dumbbell,
+  Waves,
+  CalendarDays,
+  Flame,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -15,40 +21,71 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import {
-  mondaySundayYYYYMMDD,
-  aggregateWeekStats,
-  fetchWorkoutsInDateRange,
-  fetchRecentWorkouts,
-  type WorkoutRow,
-} from "@/lib/db/listWorkouts";
+  fetchPeriodData,
+  monthBounds,
+  yearBounds,
+  type PeriodData,
+  type PeriodScope,
+} from "@/lib/db/calendarData";
+import {
+  isoLocalDate,
+  periodTotals,
+  tonnageByWeekday,
+  uniqueExerciseNames,
+  exerciseDynamics,
+  WEEKDAY_RU_LONG,
+} from "@/lib/features/workouts/analytics";
+import { PeriodSwitcher } from "@/components/calendar/period-switcher";
+import { MonthGrid } from "@/components/calendar/month-grid";
+import { DayDetail } from "@/components/calendar/day-detail";
+import { ExerciseSelector } from "@/components/calendar/exercise-selector";
+import { LineChart, type ChartSeries } from "@/components/charts/line-chart";
 
-function formatWorkoutDate(isoDate: string) {
-  return new Date(`${isoDate}T12:00:00`).toLocaleDateString("ru", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
+const EMPTY_DATA: PeriodData = {
+  workouts: [],
+  gymExercises: [],
+  swimSeries: [],
+};
 
-function workoutSummaryLine(w: WorkoutRow): string {
-  if (w.type === "gym" && w.total_tonnage != null) {
-    return `${w.total_tonnage.toLocaleString("ru")} кг`;
+const WEEKDAY_COLORS: Record<number, string> = {
+  1: "var(--chart-1)",
+  2: "var(--chart-2)",
+  3: "var(--chart-3)",
+  4: "var(--chart-4)",
+  5: "var(--chart-5)",
+  6: "var(--gym)",
+  0: "var(--swim)",
+};
+
+function periodLabel(
+  scope: PeriodScope,
+  year: number,
+  monthIdx0: number
+): string {
+  if (scope === "month") {
+    return new Date(year, monthIdx0, 1)
+      .toLocaleDateString("ru", { month: "long", year: "numeric" });
   }
-  if (w.type === "swim" && w.total_distance != null) {
-    return `${w.total_distance.toLocaleString("ru")} м`;
-  }
-  return "";
+  if (scope === "year") return String(year);
+  return "Всё время";
 }
 
 export function WorkoutCalendarHome() {
-  const pathname = usePathname();
+  const today = new Date();
+  const [scope, setScope] = useState<PeriodScope>("month");
+  const [year, setYear] = useState(today.getFullYear());
+  const [monthIdx0, setMonthIdx0] = useState(today.getMonth());
+  const [selectedDate, setSelectedDate] = useState<string>(isoLocalDate(today));
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [weekStats, setWeekStats] = useState({ count: 0, tonnage: 0, distance: 0 });
-  const [history, setHistory] = useState<WorkoutRow[]>([]);
+  const [data, setData] = useState<PeriodData>(EMPTY_DATA);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [clipboardFailed, setClipboardFailed] = useState(false);
+
+  const [tonnageExercise, setTonnageExercise] = useState<string | null>(null);
+  const [weightExercise, setWeightExercise] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,29 +98,82 @@ export function WorkoutCalendarHome() {
       return;
     }
     setResolvedUserId(user.userId);
-    const { start, end } = mondaySundayYYYYMMDD();
-    const [weekRes, listRes] = await Promise.all([
-      fetchWorkoutsInDateRange(user.userId, start, end),
-      fetchRecentWorkouts(user.userId),
-    ]);
-    if ("error" in weekRes) {
-      setError(weekRes.error);
+    const res = await fetchPeriodData(user.userId, scope, {
+      year,
+      monthIdx0,
+    });
+    if ("error" in res) {
+      setError(res.error);
       setLoading(false);
       return;
     }
-    if ("error" in listRes) {
-      setError(listRes.error);
-      setLoading(false);
-      return;
-    }
-    setWeekStats(aggregateWeekStats(weekRes.data));
-    setHistory(listRes.data);
+    setData(res.data);
     setLoading(false);
-  }, []);
+  }, [scope, year, monthIdx0]);
 
   useEffect(() => {
-    if (pathname === "/") void load();
-  }, [pathname, load]);
+    void load();
+  }, [load]);
+
+  const totals = useMemo(() => periodTotals(data), [data]);
+
+  const weekdaySeries = useMemo<ChartSeries[]>(() => {
+    const series = tonnageByWeekday(data.workouts);
+    return series.map((s) => ({
+      id: `wd-${s.weekday}`,
+      label: WEEKDAY_RU_LONG[s.weekday],
+      color: WEEKDAY_COLORS[s.weekday] ?? "var(--chart-1)",
+      points: s.points,
+    }));
+  }, [data.workouts]);
+
+  const exerciseNames = useMemo(
+    () => uniqueExerciseNames(data.gymExercises),
+    [data.gymExercises]
+  );
+
+  useEffect(() => {
+    if (exerciseNames.length === 0) {
+      if (tonnageExercise !== null) setTonnageExercise(null);
+      if (weightExercise !== null) setWeightExercise(null);
+      return;
+    }
+    if (!tonnageExercise || !exerciseNames.includes(tonnageExercise)) {
+      setTonnageExercise(exerciseNames[0]);
+    }
+    if (!weightExercise || !exerciseNames.includes(weightExercise)) {
+      setWeightExercise(exerciseNames[0]);
+    }
+  }, [exerciseNames, tonnageExercise, weightExercise]);
+
+  const tonnageDyn = useMemo(() => {
+    if (!tonnageExercise) return null;
+    return exerciseDynamics(tonnageExercise, data.gymExercises, data.workouts);
+  }, [tonnageExercise, data.gymExercises, data.workouts]);
+
+  const weightDyn = useMemo(() => {
+    if (!weightExercise) return null;
+    return exerciseDynamics(weightExercise, data.gymExercises, data.workouts);
+  }, [weightExercise, data.gymExercises, data.workouts]);
+
+  function shiftMonth(delta: number) {
+    let m = monthIdx0 + delta;
+    let y = year;
+    while (m < 0) {
+      m += 12;
+      y -= 1;
+    }
+    while (m > 11) {
+      m -= 12;
+      y += 1;
+    }
+    setMonthIdx0(m);
+    setYear(y);
+  }
+
+  function shiftYear(delta: number) {
+    setYear(year + delta);
+  }
 
   async function copyUserId() {
     if (!resolvedUserId) return;
@@ -97,8 +187,34 @@ export function WorkoutCalendarHome() {
     }
   }
 
+  const noData = !loading && totals.workouts === 0;
+
+  const tonnageSeries: ChartSeries[] = tonnageDyn
+    ? [
+        {
+          id: "ex-tonnage",
+          label: tonnageExercise ?? "",
+          color: "var(--gym)",
+          points: tonnageDyn.tonnage,
+        },
+      ]
+    : [];
+
+  const weightSeries: ChartSeries[] = weightDyn
+    ? [
+        {
+          id: "ex-weight",
+          label: weightExercise ?? "",
+          color: "var(--primary)",
+          points: weightDyn.weight,
+        },
+      ]
+    : [];
+
+  const periodTitle = periodLabel(scope, year, monthIdx0);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <CalendarDays className="size-5" />
@@ -115,42 +231,84 @@ export function WorkoutCalendarHome() {
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <PeriodSwitcher scope={scope} onChange={setScope} />
+        {scope === "year" && (
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={() => shiftYear(-1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="min-w-[3rem] text-center text-sm font-medium tabular-nums">
+              {year}
+            </span>
+            <Button variant="ghost" size="icon-sm" onClick={() => shiftYear(1)}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        )}
+        {scope === "all" && (
+          <span className="text-xs text-muted-foreground">Все тренировки</span>
+        )}
+      </div>
+
       {error && (
         <p className="text-sm text-destructive" role="alert">
           {error}
         </p>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
+      {/* Totals */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card size="sm">
           <CardContent className="pt-3">
-            <p className="text-2xl font-bold">
-              {loading ? "…" : weekStats.count.toLocaleString("ru")}
+            <p className="text-2xl font-bold tabular-nums">
+              {loading ? "…" : totals.workouts.toLocaleString("ru")}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">тренировок</p>
-            <p className="text-xs text-muted-foreground">на этой неделе</p>
+            <p className="text-[10px] text-muted-foreground">
+              {totals.gymWorkouts} зал · {totals.swimWorkouts} плав
+            </p>
           </CardContent>
         </Card>
         <Card size="sm">
           <CardContent className="pt-3">
-            <p className="text-2xl font-bold">
-              {loading ? "…" : weekStats.tonnage.toLocaleString("ru")}
+            <p className="text-2xl font-bold tabular-nums">
+              {loading ? "…" : Math.round(totals.totalTonnage).toLocaleString("ru")}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">кг тоннаж</p>
-            <p className="text-xs text-muted-foreground">за неделю</p>
+            <p className="text-[10px] text-muted-foreground capitalize">
+              {periodTitle}
+            </p>
           </CardContent>
         </Card>
         <Card size="sm">
           <CardContent className="pt-3">
-            <p className="text-2xl font-bold">
-              {loading ? "…" : weekStats.distance.toLocaleString("ru")}
+            <p className="text-2xl font-bold tabular-nums">
+              {loading ? "…" : totals.totalDistance.toLocaleString("ru")}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">м метраж</p>
-            <p className="text-xs text-muted-foreground">за неделю</p>
+            <p className="text-[10px] text-muted-foreground capitalize">
+              {periodTitle}
+            </p>
+          </CardContent>
+        </Card>
+        <Card size="sm">
+          <CardContent className="pt-3">
+            <div className="flex items-baseline gap-1">
+              <Flame className="size-4 text-primary" />
+              <p className="text-2xl font-bold tabular-nums">
+                {loading ? "…" : totals.totalCalories.toLocaleString("ru")}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">ккал тренировок</p>
+            <p className="text-[10px] text-muted-foreground capitalize">
+              {periodTitle}
+            </p>
           </CardContent>
         </Card>
       </div>
 
+      {/* Quick-add buttons */}
       <div className="grid grid-cols-2 gap-3">
         <Link
           href="/gym"
@@ -176,97 +334,169 @@ export function WorkoutCalendarHome() {
         </Link>
       </div>
 
+      {/* Calendar grid: only when scope = month */}
+      {scope === "month" && (
+        <>
+          <MonthGrid
+            year={year}
+            monthIdx0={monthIdx0}
+            workouts={data.workouts}
+            selectedDate={selectedDate}
+            onSelect={setSelectedDate}
+            onPrev={() => shiftMonth(-1)}
+            onNext={() => shiftMonth(1)}
+          />
+          <DayDetail
+            date={selectedDate}
+            workouts={data.workouts}
+            gymExercises={data.gymExercises}
+            swimSeries={data.swimSeries}
+          />
+        </>
+      )}
+
+      {/* Charts */}
       <Card>
-        <CardHeader>
-          <CardTitle>История тренировок</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Тоннаж по дням недели</CardTitle>
           <CardDescription>
-            Здесь отображаются сохранённые в облаке тренировки (до 50 последних по
-            дате).
+            Только силовые. Каждый день недели — отдельная серия (динамика общего тоннажа тренировки).
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading && (
-            <p className="text-sm text-muted-foreground text-center py-6">Загрузка…</p>
-          )}
-          {!loading && history.length === 0 && !error && (
-            <div className="space-y-4 py-4 text-center text-sm text-muted-foreground">
-              <p>
-                В Supabase нет тренировок для{" "}
-                <strong className="text-foreground">этого</strong> профиля браузера
-                (см. UUID ниже).
-              </p>
-              <p>
-                Сохраните тренировку на страницах «Зал» или «Плавание», либо выполните в корне
-                проекта офлайн-импорт из CSV в БД:{" "}
-                <code className="rounded bg-muted px-1 text-xs text-foreground">
-                  npm run seed:supabase
-                </code>{" "}
-                — с тем же UUID в{" "}
-                <code className="rounded bg-muted px-1 text-xs text-foreground">
-                  WORKOUT_IMPORT_USER_ID
-                </code>{" "}
-                /{" "}
-                <code className="rounded bg-muted px-1 text-xs text-foreground">
-                  NEXT_PUBLIC_WORKOUT_USER_ID
-                </code>
-                .
-              </p>
-              {resolvedUserId && (
-                <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 text-left">
-                  <p className="text-xs font-medium text-foreground mb-1">
-                    Ваш UUID в приложении (должен совпадать с импортом и строкой в БД):
-                  </p>
-                  <p className="font-mono text-xs break-all text-foreground select-all">
-                    {resolvedUserId}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => void copyUserId()}
-                  >
-                    {copied ? "Скопировано ✓" : "Скопировать UUID"}
-                  </Button>
-                  {clipboardFailed && (
-                    <p className="mt-2 text-xs text-destructive">
-                      Не удалось скопировать — выделите UUID выше вручную.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {!loading && history.length > 0 && (
-            <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-              {history.map((w) => {
-                const summary = workoutSummaryLine(w);
-                return (
-                  <li
-                    key={w.id}
-                    className="flex items-center gap-3 px-3 py-3 text-sm bg-card"
-                  >
-                    {w.type === "gym" ? (
-                      <Dumbbell className="size-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <Waves className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium">
-                        {w.type === "gym" ? "Силовая" : "Плавание"}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatWorkoutDate(w.date)}
-                        {summary ? ` · ${summary}` : ""}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <LineChart
+            series={weekdaySeries}
+            unit="кг"
+            emptyMessage={
+              loading
+                ? "Загрузка…"
+                : "За период не было силовых тренировок"
+            }
+          />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Динамика тоннажа упражнения</CardTitle>
+          <CardDescription>
+            Сумма (вес × повторы) на каждой тренировке периода.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ExerciseSelector
+            options={exerciseNames}
+            value={tonnageExercise}
+            onChange={setTonnageExercise}
+          />
+          <LineChart
+            series={tonnageSeries}
+            unit="кг"
+            emptyMessage={
+              loading
+                ? "Загрузка…"
+                : exerciseNames.length === 0
+                  ? "Нет силовых тренировок за период"
+                  : "Нет данных по упражнению"
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Рабочий вес упражнения</CardTitle>
+          <CardDescription>
+            Максимальный рабочий вес среди подходов (reps ≥ 1) на каждой тренировке.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ExerciseSelector
+            options={exerciseNames}
+            value={weightExercise}
+            onChange={setWeightExercise}
+          />
+          <LineChart
+            series={weightSeries}
+            unit="кг"
+            emptyMessage={
+              loading
+                ? "Загрузка…"
+                : exerciseNames.length === 0
+                  ? "Нет силовых тренировок за период"
+                  : "Нет данных по упражнению"
+            }
+          />
+        </CardContent>
+      </Card>
+
+      {/* Empty state with UUID hint */}
+      {noData && resolvedUserId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Нет данных за период</CardTitle>
+            <CardDescription>
+              В Supabase нет тренировок для этого профиля за «{periodTitle}».
+              Сохраните тренировку или выполните офлайн-импорт.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-3">
+              <p className="text-xs font-medium text-foreground mb-1">
+                Ваш UUID в приложении:
+              </p>
+              <p className="font-mono text-xs break-all text-foreground select-all">
+                {resolvedUserId}
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                onClick={() => void copyUserId()}
+              >
+                {copied ? "Скопировано ✓" : "Скопировать UUID"}
+              </Button>
+              {clipboardFailed && (
+                <p className="mt-2 text-xs text-destructive">
+                  Не удалось скопировать — выделите UUID вручную.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Period quick-jump */}
+      {scope !== "all" && (
+        <div className="text-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              const t = new Date();
+              setYear(t.getFullYear());
+              setMonthIdx0(t.getMonth());
+              if (scope === "month") setSelectedDate(isoLocalDate(t));
+            }}
+          >
+            К текущему {scope === "month" ? "месяцу" : "году"}
+          </Button>
+        </div>
+      )}
+
+      {/* Helper bounds info */}
+      {scope === "year" && (
+        <p className="text-center text-xs text-muted-foreground">
+          {yearBounds(year).start} — {yearBounds(year).end}
+        </p>
+      )}
+      {scope === "month" && (
+        <p className="text-center text-xs text-muted-foreground">
+          {monthBounds(year, monthIdx0).start} — {monthBounds(year, monthIdx0).end}
+        </p>
+      )}
     </div>
   );
 }

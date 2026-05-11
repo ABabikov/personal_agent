@@ -1,0 +1,35 @@
+# Ежедневный экспорт таблиц Supabase в Google Таблицу (см. scripts/backup-supabase-to-google-sheets.ts).
+# Настройте secrets в репозитории и отключите workflow, если не используете GitHub Actions.
+
+name: Supabase backup to Google Sheets
+
+on:
+  schedule:
+    # 03:15 UTC ежедневно (~06:15 МСК зимой; при DST сдвиньте при необходимости)
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backup
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          BACKUP_INCLUDE_EMBEDDINGS: ${{ vars.BACKUP_INCLUDE_EMBEDDINGS }}
+        run: npm run backup:sheets

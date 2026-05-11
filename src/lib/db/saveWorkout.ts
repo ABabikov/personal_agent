@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/db/supabase";
 import { exerciseTonnage, totalTonnage } from "@/lib/features/workouts/tonnage";
+import { estimateGymCalories } from "@/lib/features/workouts/calories";
 import type { GymSet } from "@/types/database";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 
@@ -25,6 +26,10 @@ export async function saveGymWorkoutToSupabase(params: {
   bodyWeightStr: string;
   exercises: GymExerciseForm[];
   notes: string;
+  /** Fallback-вес из профиля, если в форме не указан вес тела (используется для расчёта калорий). */
+  profileWeightKg?: number | null;
+  /** Опциональная ручная длительность тренировки в минутах. */
+  durationMinOverride?: number | null;
 }): Promise<{ ok: true } | { error: string }> {
   const user = await getWorkoutUserId();
   if ("error" in user) return user;
@@ -52,6 +57,17 @@ export async function saveGymWorkoutToSupabase(params: {
   const body_weight = parseBodyWeight(params.bodyWeightStr);
   const notesTrim = params.notes.trim();
 
+  const effectiveWeight = body_weight ?? params.profileWeightKg ?? null;
+  let caloriesEstimated: number | null = null;
+  if (effectiveWeight && effectiveWeight > 0) {
+    const est = estimateGymCalories({
+      bodyWeightKg: effectiveWeight,
+      exercises: summaries,
+      durationMinOverride: params.durationMinOverride ?? null,
+    });
+    if (est) caloriesEstimated = est.calories;
+  }
+
   const { data: workout, error: wErr } = await supabase
     .from("workouts")
     .insert({
@@ -61,7 +77,7 @@ export async function saveGymWorkoutToSupabase(params: {
       body_weight,
       total_tonnage: Math.round(total * 10) / 10,
       total_distance: null,
-      calories_estimated: null,
+      calories_estimated: caloriesEstimated,
       notes: notesTrim || null,
     })
     .select("id")

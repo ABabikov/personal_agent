@@ -40,6 +40,7 @@ export async function fetchWorkoutsInDateRange(
     .from("workouts")
     .select("*")
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .gte("date", start)
     .lte("date", end)
     .order("date", { ascending: false })
@@ -57,6 +58,7 @@ export async function fetchRecentWorkouts(
     .from("workouts")
     .select("*")
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(limit);

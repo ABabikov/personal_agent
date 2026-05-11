@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { User, Flame, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,39 +8,133 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   calculateBMR,
+  calculateBMRKatchMcArdle,
   calculateTDEE,
   ACTIVITY_LEVELS,
 } from "@/lib/features/workouts/calories";
 import { cn } from "@/lib/utils";
+import { getWorkoutUserId } from "@/lib/db/workoutUserId";
+import {
+  loadUserProfile,
+  saveUserProfile,
+  DEFAULT_PROFILE,
+  type Gender,
+  type ProfileForm,
+} from "@/lib/db/profile";
 
-type Gender = "male" | "female";
+function toStr(v: number | null): string {
+  return v == null ? "" : String(v);
+}
+
+function toNum(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = Number(t.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
 
 export default function ProfilePage() {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<Gender>("male");
-  const [activityLevel, setActivityLevel] = useState(1.55);
+  const [activityLevel, setActivityLevel] = useState<number>(
+    DEFAULT_PROFILE.activity_level
+  );
   const [bodyFat, setBodyFat] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
 
-  const w = parseFloat(weight);
-  const h = parseFloat(height);
-  const a = parseInt(age);
-  const hasProfile = w > 0 && h > 0 && a > 0;
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const bmr = hasProfile ? calculateBMR(w, h, a, gender) : null;
+  function applyProfile(p: ProfileForm) {
+    setWeight(toStr(p.weight));
+    setHeight(toStr(p.height));
+    setAge(toStr(p.age));
+    if (p.gender) setGender(p.gender);
+    setActivityLevel(p.activity_level || DEFAULT_PROFILE.activity_level);
+    setBodyFat(toStr(p.body_fat_pct));
+  }
+
+  const reload = useCallback(async () => {
+    setLoadError(null);
+    const user = await getWorkoutUserId();
+    if ("error" in user) {
+      setUserId(null);
+      setUserError(user.error);
+      return;
+    }
+    setUserError(null);
+    setUserId(user.userId);
+
+    const res = await loadUserProfile(user.userId);
+    if ("error" in res) {
+      setLoadError(res.error);
+      return;
+    }
+    if (res.data) applyProfile(res.data);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await reload();
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+
+  const w = toNum(weight);
+  const h = toNum(height);
+  const a = age ? parseInt(age, 10) : null;
+  const bf = toNum(bodyFat);
+  const hasProfile = w != null && w > 0 && h != null && h > 0 && a != null && a > 0;
+
+  const bmrMifflin = hasProfile ? calculateBMR(w, h, a!, gender) : null;
+  const bmrKatch = w != null && w > 0 && bf != null && bf > 0
+    ? calculateBMRKatchMcArdle(w, bf)
+    : null;
+  const bmr = bmrKatch ?? bmrMifflin;
   const tdee = bmr ? calculateTDEE(bmr, activityLevel) : null;
+  const bmrLabel = bmrKatch ? "Katch-McArdle" : "Mifflin-St Jeor";
 
   async function handleSave() {
-    // TODO: save to Supabase
+    if (!userId) {
+      setSaveError("Нет user_id — открой главную или сохрани тренировку, чтобы создать профиль.");
+      return;
+    }
+    setSaveError(null);
+    setSaveState("saving");
+    const payload: ProfileForm = {
+      weight: w,
+      height: h,
+      age: a,
+      gender,
+      activity_level: activityLevel,
+      body_fat_pct: bf,
+    };
+    const res = await saveUserProfile(userId, payload);
+    if ("error" in res) {
+      console.error("[profile] save failed:", res.error);
+      setSaveError(res.error);
+      setSaveState("idle");
+      return;
+    }
+    // Применяем то, что реально лежит в БД после upsert — чтобы пользователь видел,
+    // что значения «приклеились».
+    applyProfile(res.data);
     setSaveState("saved");
     setTimeout(() => setSaveState("idle"), 2000);
   }
 
   return (
     <div className="space-y-4">
-      {/* Page header */}
       <div className="flex items-center gap-2">
         <div className="flex size-9 items-center justify-center rounded-lg bg-primary/15">
           <User className="size-5 text-primary" />
@@ -48,7 +142,20 @@ export default function ProfilePage() {
         <h1 className="text-lg font-semibold">Профиль</h1>
       </div>
 
-      {/* Physical parameters */}
+      {!hydrated && (
+        <p className="text-sm text-muted-foreground">Загрузка профиля…</p>
+      )}
+      {userError && (
+        <p className="text-sm text-destructive" role="alert">
+          {userError}
+        </p>
+      )}
+      {loadError && !userError && (
+        <p className="text-sm text-destructive" role="alert">
+          Не удалось загрузить профиль: {loadError}
+        </p>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Физические параметры</CardTitle>
@@ -107,7 +214,6 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Gender */}
           <div>
             <Label>Пол</Label>
             <div className="mt-1.5 grid grid-cols-2 gap-2">
@@ -129,7 +235,6 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Body fat (optional) */}
           <div>
             <Label htmlFor="body-fat">Процент жира (опционально)</Label>
             <div className="relative mt-1.5">
@@ -152,7 +257,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Activity level */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Уровень активности</CardTitle>
@@ -181,7 +285,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* BMR/TDEE Calculator */}
       {hasProfile && bmr && tdee ? (
         <Card className="overflow-hidden">
           <CardHeader className="pb-3">
@@ -194,9 +297,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
               <div>
                 <p className="text-sm font-medium">BMR</p>
-                <p className="text-xs text-muted-foreground">
-                  Базовый метаболизм
-                </p>
+                <p className="text-xs text-muted-foreground">Базовый метаболизм</p>
               </div>
               <div className="text-right">
                 <span className="text-xl font-bold tabular-nums">
@@ -208,9 +309,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between rounded-lg bg-primary/10 px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-primary">TDEE</p>
-                <p className="text-xs text-muted-foreground">
-                  Суточный расход
-                </p>
+                <p className="text-xs text-muted-foreground">Суточный расход</p>
               </div>
               <div className="text-right">
                 <span className="text-xl font-bold tabular-nums text-primary">
@@ -220,7 +319,7 @@ export default function ProfilePage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Формула Mifflin-St Jeor
+              Формула {bmrLabel}
             </p>
           </CardContent>
         </Card>
@@ -237,9 +336,23 @@ export default function ProfilePage() {
         </Card>
       )}
 
-      {/* Save button */}
-      <Button onClick={handleSave} className="w-full" size="lg">
-        {saveState === "saved" ? "Сохранено" : "Сохранить профиль"}
+      {saveError && (
+        <p className="text-sm text-destructive" role="alert">
+          {saveError}
+        </p>
+      )}
+
+      <Button
+        onClick={handleSave}
+        className="w-full"
+        size="lg"
+        disabled={saveState === "saving" || !userId}
+      >
+        {saveState === "saving"
+          ? "Сохранение…"
+          : saveState === "saved"
+            ? "Сохранено"
+            : "Сохранить профиль"}
       </Button>
     </div>
   );

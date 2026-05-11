@@ -29,6 +29,9 @@ yarn-error.log*
 .env
 .env*.local
 
+# Google Cloud service account JSON (private keys; do not commit)
+**/my-agent-*.json
+
 # vercel
 .vercel
 
