@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(npx create-next-app@latest *)",
+      "Bash(cp -r src next.config.ts tsconfig.json postcss.config.mjs eslint.config.mjs package.json package-lock.json /c/Users/Ababikov/Downloads/REPO/agent/personal_agent/)",
+      "Bash(cp -r public /c/Users/Ababikov/Downloads/REPO/agent/personal_agent/)",
+      "Bash(npm install *)",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-0c-80-sheets.googleusercontent.com)",
+      "Bash(grep -v '^$')",
+      "Bash(npx shadcn@latest *)",
+      "Bash(npm run *)"
+    ]
+  }
+}
