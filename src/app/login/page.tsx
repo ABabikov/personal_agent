@@ -2,7 +2,10 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { invalidateWorkoutUserIdCache } from "@/lib/db/workoutUserId";
+import {
+  invalidateWorkoutUserIdCache,
+  primeWorkoutUserId,
+} from "@/lib/db/workoutUserId";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,12 +31,18 @@ function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        workoutUserId?: string | null;
+      };
       if (!res.ok) {
         setError(data.error ?? `Ошибка ${res.status}`);
         return;
       }
       invalidateWorkoutUserIdCache();
+      if (typeof data.workoutUserId === "string" && data.workoutUserId.trim()) {
+        primeWorkoutUserId(data.workoutUserId);
+      }
       window.location.href = nextPath;
     } finally {
       setLoading(false);

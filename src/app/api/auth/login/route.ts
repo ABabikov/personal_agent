@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { getConfiguredWorkoutUserIdFromEnv } from "@/lib/auth/workout-user-env";
 import { issueSessionToken, SITE_AUTH_COOKIE } from "@/lib/auth/site-session";
 
 export const runtime = "nodejs";
@@ -37,7 +38,11 @@ export async function POST(req: Request) {
   }
 
   const token = await issueSessionToken(secret);
-  const res = NextResponse.json({ ok: true });
+  const workoutUserId = getConfiguredWorkoutUserIdFromEnv();
+  const res = NextResponse.json({
+    ok: true as const,
+    workoutUserId,
+  });
   const secure = process.env.NODE_ENV === "production";
   res.cookies.set(SITE_AUTH_COOKIE, token, {
     httpOnly: true,

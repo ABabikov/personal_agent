@@ -43,6 +43,17 @@ export function invalidateWorkoutUserIdCache(): void {
   serverUserCache = undefined;
 }
 
+/** Ответ POST /api/auth/login — без второго RTT к /api/workout-user после редиректа. */
+export function primeWorkoutUserId(id: string): void {
+  const trimmed = id.trim();
+  if (!trimmed) return;
+  serverUserCache = { ok: true, userId: trimmed };
+  writeStoredUserId(trimmed);
+}
+
+/** Параллельные экраны не делают несколько одинаковых GET /api/workout-user. */
+let inflightServerFetch: Promise<string | null> | null = null;
+
 /** Серверный WORKOUT_USER_ID — один UUID для всех устройств (см. /api/workout-user). */
 async function fetchServerWorkoutUserId(): Promise<string | null> {
   if (typeof window === "undefined") return null;
@@ -51,32 +62,39 @@ async function fetchServerWorkoutUserId(): Promise<string | null> {
       ? serverUserCache.userId
       : null;
   }
-  try {
-    const r = await fetch("/api/workout-user", {
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    if (!r.ok) {
-      return null;
-    }
-    const j: unknown = await r.json();
-    if (j && typeof j === "object" && "userId" in j) {
-      const raw = (j as { userId: unknown }).userId;
-      if (raw === null) {
+  if (!inflightServerFetch) {
+    inflightServerFetch = (async (): Promise<string | null> => {
+      try {
+        const r = await fetch("/api/workout-user", {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!r.ok) {
+          return null;
+        }
+        const j: unknown = await r.json();
+        if (j && typeof j === "object" && "userId" in j) {
+          const raw = (j as { userId: unknown }).userId;
+          if (raw === null) {
+            serverUserCache = { ok: true, userId: null };
+            return null;
+          }
+          if (typeof raw === "string") {
+            const id = raw.trim();
+            serverUserCache = { ok: true, userId: id.length > 0 ? id : null };
+            return id.length > 0 ? id : null;
+          }
+        }
         serverUserCache = { ok: true, userId: null };
         return null;
+      } catch {
+        return null;
+      } finally {
+        inflightServerFetch = null;
       }
-      if (typeof raw === "string") {
-        const id = raw.trim();
-        serverUserCache = { ok: true, userId: id.length > 0 ? id : null };
-        return id.length > 0 ? id : null;
-      }
-    }
-    serverUserCache = { ok: true, userId: null };
-    return null;
-  } catch {
-    return null;
+    })();
   }
+  return inflightServerFetch;
 }
 
 /** Minimal row so PostgREST accepts the insert with strict generated types */
@@ -94,8 +112,8 @@ function blankUserRow(): UserInsert {
 }
 
 /**
- * Resolves `users.id`: сначала сервер (WORKOUT_USER_ID на Vercel), затем NEXT_PUBLIC_* из билда,
- * затем localStorage, затем создание строки в `users`.
+ * Resolves `users.id`: NEXT_PUBLIC_* (синхронно), затем localStorage без ожидания сети
+ * (фоновая сверка с /api/workout-user), иначе сервер и создание строки в `users`.
  */
 export async function getWorkoutUserId(): Promise<
   { userId: string } | { error: string }
@@ -104,17 +122,25 @@ export async function getWorkoutUserId(): Promise<
     return { error: "Сохранение только в браузере." };
   }
 
+  const fromEnv = envUserId();
+  if (fromEnv) return { userId: fromEnv };
+
+  const cached = readStoredUserId();
+  if (cached) {
+    void (async () => {
+      const canonical = await fetchServerWorkoutUserId();
+      if (canonical && canonical !== cached) {
+        writeStoredUserId(canonical);
+      }
+    })();
+    return { userId: cached };
+  }
+
   const fromServer = await fetchServerWorkoutUserId();
   if (fromServer) {
     writeStoredUserId(fromServer);
     return { userId: fromServer };
   }
-
-  const fromEnv = envUserId();
-  if (fromEnv) return { userId: fromEnv };
-
-  const cached = readStoredUserId();
-  if (cached) return { userId: cached };
 
   const { data, error } = await supabase
     .from("users")
