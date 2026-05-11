@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Waves } from "lucide-react";
+import { Plus, Waves, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { totalDistance } from "@/lib/features/swimming/distance";
 import {
-  swimWorkoutToSeriesInputs,
+  SwimSeriesCard,
   type SwimSeriesInput,
-} from "@/lib/features/workouts/swimFormFromSeed";
+} from "@/components/workout/swim-series-card";
+import { TotalCard } from "@/components/workout/total-card";
+import { totalDistance } from "@/lib/features/swimming/distance";
+import { swimWorkoutToSeriesInputs } from "@/lib/features/workouts/swimFormFromSeed";
 import type { ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
 import { saveSwimWorkoutToSupabase } from "@/lib/db/saveWorkout";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
@@ -31,19 +33,6 @@ function todayString() {
   return new Date().toISOString().split("T")[0];
 }
 
-const DESCRIPTION_HINTS = [
-  "кроль",
-  "брасс",
-  "спина",
-  "баттерфляй",
-  "ласты",
-  "лопатки",
-  "трубка",
-  "колобашка",
-  "80%",
-  "отдых 30\"",
-];
-
 function SwimWorkoutEditor({
   lastWorkout,
   onSaveSuccess,
@@ -56,7 +45,9 @@ function SwimWorkoutEditor({
     lastWorkout ? swimWorkoutToSeriesInputs(lastWorkout) : [newSeries()]
   );
   const [notes, setNotes] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
+    "idle"
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
 
   function applyLast() {
@@ -72,13 +63,15 @@ function SwimWorkoutEditor({
     setSeries((prev) => prev.filter((s) => s.id !== id));
   }
 
-  function updateField(
-    id: string,
-    field: "distance" | "description",
-    value: string
-  ) {
+  function updateDistance(id: string, distance: string) {
     setSeries((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+      prev.map((s) => (s.id === id ? { ...s, distance } : s))
+    );
+  }
+
+  function updateDescription(id: string, description: string) {
+    setSeries((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, description } : s))
     );
   }
 
@@ -113,31 +106,24 @@ function SwimWorkoutEditor({
   }
 
   return (
-    <>
-      <Card>
-        <CardContent className="pt-4 space-y-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!lastWorkout}
-            onClick={applyLast}
-          >
-            Подставить последнюю из базы
-          </Button>
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      {lastWorkout && (
+        <Button variant="outline" size="sm" onClick={applyLast}>
+          <RotateCcw className="size-3.5" />
+          <span>Подставить последнюю из базы</span>
+        </Button>
+      )}
 
       <Card>
         <CardContent className="pt-4">
-          <div className="w-48">
+          <div className="w-40">
             <Label htmlFor="date">Дата</Label>
             <Input
               id="date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="mt-1"
+              className="mt-1.5"
             />
           </div>
         </CardContent>
@@ -145,98 +131,45 @@ function SwimWorkoutEditor({
 
       <div className="space-y-3">
         {series.map((s, idx) => (
-          <Card key={s.id}>
-            <CardHeader className="pb-2 border-b">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm shrink-0 w-5">
-                  {idx + 1}.
-                </span>
-                <div className="flex items-center gap-2 flex-1">
-                  <div className="w-28 shrink-0">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="25"
-                      placeholder="Метры"
-                      value={s.distance}
-                      onChange={(e) =>
-                        updateField(s.id, "distance", e.target.value)
-                      }
-                    />
-                  </div>
-                  <span className="text-muted-foreground text-sm shrink-0">м</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  type="button"
-                  onClick={() => removeSeries(s.id)}
-                  disabled={series.length === 1}
-                  className="shrink-0 text-muted-foreground"
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-3">
-              <Input
-                placeholder="Описание: стиль, интервалы, оборудование..."
-                value={s.description}
-                onChange={(e) =>
-                  updateField(s.id, "description", e.target.value)
-                }
-              />
-              <div className="mt-2 flex flex-wrap gap-1">
-                {DESCRIPTION_HINTS.map((hint) => (
-                  <button
-                    type="button"
-                    key={hint}
-                    onClick={() =>
-                      updateField(
-                        s.id,
-                        "description",
-                        s.description
-                          ? `${s.description} ${hint}`
-                          : hint
-                      )
-                    }
-                    className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                  >
-                    {hint}
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <SwimSeriesCard
+            key={s.id}
+            series={s}
+            index={idx}
+            canDelete={series.length > 1}
+            onDistanceChange={(distance) => updateDistance(s.id, distance)}
+            onDescriptionChange={(description) =>
+              updateDescription(s.id, description)
+            }
+            onDelete={() => removeSeries(s.id)}
+          />
         ))}
       </div>
 
-      <Button variant="outline" onClick={addSeries} className="w-full" type="button">
-        <Plus />
-        Добавить серию
+      <Button
+        variant="outline"
+        onClick={addSeries}
+        className="w-full border-dashed"
+      >
+        <Plus className="size-4" />
+        <span>Добавить серию</span>
       </Button>
 
-      {total > 0 && (
-        <Card className="bg-primary text-primary-foreground ring-0">
-          <CardContent className="pt-4">
-            <div className="flex justify-between items-center">
-              <span className="opacity-80">Общий метраж</span>
-              <span className="text-2xl font-bold">
-                {total.toLocaleString("ru")} м
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <TotalCard
+        icon={Waves}
+        label="Общий метраж"
+        value={total}
+        unit="м"
+        variant="swim"
+      />
 
       <div>
-        <Label htmlFor="notes">Заметки (необязательно)</Label>
+        <Label htmlFor="notes">Заметки</Label>
         <textarea
           id="notes"
-          placeholder="Самочувствие, темп, особенности тренировки..."
+          placeholder="Самочувствие, темп, особенности..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 min-h-[72px] resize-none"
+          className="mt-1.5 w-full rounded-xl border border-input bg-card px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px] resize-none"
         />
       </div>
 
@@ -248,18 +181,17 @@ function SwimWorkoutEditor({
 
       <Button
         onClick={handleSave}
-        className="w-full"
+        className="w-full bg-swim hover:bg-swim/90 text-swim-foreground"
         size="lg"
-        type="button"
         disabled={saveState === "saving"}
       >
         {saveState === "saving"
-          ? "Сохранение…"
+          ? "Сохранение..."
           : saveState === "saved"
-            ? "Сохранено ✓"
+            ? "Сохранено"
             : "Сохранить тренировку"}
       </Button>
-    </>
+    </div>
   );
 }
 
@@ -303,9 +235,13 @@ export default function SwimPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Waves className="size-5" />
-        <h2 className="text-xl font-semibold">Плавательная тренировка</h2>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-swim/15">
+            <Waves className="size-5 text-swim" />
+          </div>
+          <h1 className="text-lg font-semibold">Плавание</h1>
+        </div>
       </div>
 
       {!hydrated && (

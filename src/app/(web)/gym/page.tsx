@@ -1,21 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Dumbbell } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, Dumbbell, Sparkles, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { exerciseTonnage, totalTonnage } from "@/lib/features/workouts/tonnage";
 import {
-  gymWorkoutToExerciseInputs,
+  ExerciseCard,
   type ExerciseInput,
   type SetInput,
-} from "@/lib/features/workouts/gymFormFromSeed";
+} from "@/components/workout/exercise-card";
+import { TotalCard } from "@/components/workout/total-card";
+import { exerciseTonnage, totalTonnage } from "@/lib/features/workouts/tonnage";
+import { gymWorkoutToExerciseInputs } from "@/lib/features/workouts/gymFormFromSeed";
 import type { ParsedGymWorkout } from "@/lib/features/workouts/csvImport";
 import type { GymSet } from "@/types/database";
 import { saveGymWorkoutToSupabase } from "@/lib/db/saveWorkout";
@@ -60,17 +58,16 @@ function GymWorkoutEditor({
   onSaveSuccess?: () => void;
 }) {
   const [date, setDate] = useState(todayString);
-  const [bodyWeight, setBodyWeight] = useState(
-    () =>
-      lastWorkout?.bodyWeight != null ? String(lastWorkout.bodyWeight) : ""
+  const [bodyWeight, setBodyWeight] = useState(() =>
+    lastWorkout?.bodyWeight != null ? String(lastWorkout.bodyWeight) : ""
   );
   const [exercises, setExercises] = useState<ExerciseInput[]>(() =>
-    lastWorkout
-      ? gymWorkoutToExerciseInputs(lastWorkout, true)
-      : [newExercise()]
+    lastWorkout ? gymWorkoutToExerciseInputs(lastWorkout, true) : [newExercise()]
   );
   const [notes, setNotes] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
+    "idle"
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
 
   function applyFromLast(withProgression: boolean) {
@@ -169,208 +166,112 @@ function GymWorkoutEditor({
   }
 
   return (
-    <>
-      <Card>
-        <CardContent className="pt-4 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={!lastWorkout}
-              onClick={() => applyFromLast(true)}
-            >
-              Обновить по прогрессии
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!lastWorkout}
-              onClick={() => applyFromLast(false)}
-            >
-              Как в последней (без +1)
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      {lastWorkout && (
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => applyFromLast(true)}
+            className="flex-1"
+          >
+            <Sparkles className="size-3.5" />
+            <span>С прогрессией (+1 повт)</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => applyFromLast(false)}
+          >
+            <RotateCcw className="size-3.5" />
+            <span>Как было</span>
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardContent className="pt-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex-1 min-w-[140px]">
+          <div className="flex gap-3">
+            <div className="flex-1">
               <Label htmlFor="date">Дата</Label>
               <Input
                 id="date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="mt-1"
+                className="mt-1.5"
               />
             </div>
-            <div className="w-36">
-              <Label htmlFor="bw">Вес тела (кг)</Label>
-              <Input
-                id="bw"
-                type="number"
-                step="0.1"
-                min="30"
-                max="200"
-                placeholder="80.0"
-                value={bodyWeight}
-                onChange={(e) => setBodyWeight(e.target.value)}
-                className="mt-1"
-              />
+            <div className="w-28">
+              <Label htmlFor="bw">Вес тела</Label>
+              <div className="relative mt-1.5">
+                <Input
+                  id="bw"
+                  type="number"
+                  step="0.1"
+                  min="30"
+                  max="200"
+                  placeholder="80.0"
+                  value={bodyWeight}
+                  onChange={(e) => setBodyWeight(e.target.value)}
+                  className="pr-8"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  кг
+                </span>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
       <div className="space-y-3">
-        {exercises.map((ex, exIdx) => {
+        {exercises.map((ex, idx) => {
           const summary = summaries.find((s) => s.id === ex.id)!;
           return (
-            <Card key={ex.id}>
-              <CardHeader className="pb-2 border-b">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-sm shrink-0 w-5">
-                    {exIdx + 1}.
-                  </span>
-                  <Input
-                    placeholder="Название упражнения"
-                    value={ex.name}
-                    onChange={(e) => updateName(ex.id, e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    type="button"
-                    onClick={() => removeExercise(ex.id)}
-                    disabled={exercises.length === 1}
-                    className="shrink-0 text-muted-foreground"
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-3">
-                <div className="overflow-x-auto -mx-1 px-1">
-                  <table className="w-full text-sm border-separate border-spacing-x-1">
-                    <thead>
-                      <tr className="text-muted-foreground">
-                        <th className="text-left font-normal w-12" />
-                        {ex.sets.map((_, i) => (
-                          <th key={i} className="font-normal text-center min-w-[60px]">
-                            <div className="flex items-center justify-center gap-0.5">
-                              <span>{i + 1}</span>
-                              {ex.sets.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeSet(ex.id, i)}
-                                  className="text-muted-foreground/40 hover:text-destructive leading-none ml-0.5"
-                                  title="Удалить подход"
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </div>
-                          </th>
-                        ))}
-                        {ex.sets.length < 6 && (
-                          <th className="font-normal">
-                            <button
-                              type="button"
-                              onClick={() => addSet(ex.id)}
-                              className="text-muted-foreground/40 hover:text-primary text-base leading-none"
-                              title="Добавить подход"
-                            >
-                              +
-                            </button>
-                          </th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="text-muted-foreground text-xs py-1">кг</td>
-                        {ex.sets.map((s, i) => (
-                          <td key={i} className="py-1">
-                            <Input
-                              type="number"
-                              step="0.5"
-                              min="0"
-                              placeholder="—"
-                              value={s.weight}
-                              onChange={(e) =>
-                                updateSet(ex.id, i, "weight", e.target.value)
-                              }
-                              className="text-center px-1 h-8"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td className="text-muted-foreground text-xs py-1">повт</td>
-                        {ex.sets.map((s, i) => (
-                          <td key={i} className="py-1">
-                            <Input
-                              type="number"
-                              min="0"
-                              placeholder="—"
-                              value={s.reps}
-                              onChange={(e) =>
-                                updateSet(ex.id, i, "reps", e.target.value)
-                              }
-                              className="text-center px-1 h-8"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                {summary.tonnage > 0 && (
-                  <p className="mt-2 text-right text-sm text-muted-foreground">
-                    Тоннаж:{" "}
-                    <span className="font-medium text-foreground">
-                      {summary.tonnage.toLocaleString("ru")} кг
-                    </span>
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <ExerciseCard
+              key={ex.id}
+              exercise={ex}
+              index={idx}
+              tonnage={summary.tonnage}
+              canDelete={exercises.length > 1}
+              onNameChange={(name) => updateName(ex.id, name)}
+              onSetChange={(setIdx, field, value) =>
+                updateSet(ex.id, setIdx, field, value)
+              }
+              onAddSet={() => addSet(ex.id)}
+              onRemoveSet={(setIdx) => removeSet(ex.id, setIdx)}
+              onDelete={() => removeExercise(ex.id)}
+            />
           );
         })}
       </div>
 
-      <Button variant="outline" onClick={addExercise} className="w-full" type="button">
-        <Plus />
-        Добавить упражнение
+      <Button
+        variant="outline"
+        onClick={addExercise}
+        className="w-full border-dashed"
+      >
+        <Plus className="size-4" />
+        <span>Добавить упражнение</span>
       </Button>
 
-      {total > 0 && (
-        <Card className="bg-primary text-primary-foreground ring-0">
-          <CardContent className="pt-4">
-            <div className="flex justify-between items-center">
-              <span className="opacity-80">Общий тоннаж</span>
-              <span className="text-2xl font-bold">
-                {total.toLocaleString("ru")} кг
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <TotalCard
+        icon={Dumbbell}
+        label="Общий тоннаж"
+        value={total}
+        unit="кг"
+        variant="gym"
+      />
 
       <div>
-        <Label htmlFor="notes">Заметки (необязательно)</Label>
+        <Label htmlFor="notes">Заметки</Label>
         <textarea
           id="notes"
           placeholder="Самочувствие, особенности тренировки..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 min-h-[72px] resize-none"
+          className="mt-1.5 w-full rounded-xl border border-input bg-card px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px] resize-none"
         />
       </div>
 
@@ -382,18 +283,17 @@ function GymWorkoutEditor({
 
       <Button
         onClick={handleSave}
-        className="w-full"
+        className="w-full bg-gym hover:bg-gym/90 text-gym-foreground"
         size="lg"
-        type="button"
         disabled={saveState === "saving"}
       >
         {saveState === "saving"
-          ? "Сохранение…"
+          ? "Сохранение..."
           : saveState === "saved"
-            ? "Сохранено ✓"
+            ? "Сохранено"
             : "Сохранить тренировку"}
       </Button>
-    </>
+    </div>
   );
 }
 
@@ -437,9 +337,13 @@ export default function GymPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Dumbbell className="size-5" />
-        <h2 className="text-xl font-semibold">Силовая тренировка</h2>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-gym/15">
+            <Dumbbell className="size-5 text-gym" />
+          </div>
+          <h1 className="text-lg font-semibold">Силовая</h1>
+        </div>
       </div>
 
       {!hydrated && (
@@ -471,7 +375,7 @@ export default function GymPage() {
                   {Math.round(lastParsed.totalTonnage).toLocaleString("ru")} кг
                 </>
               )}
-              . Кнопки ниже —{" "}
+              . Кнопки в форме —{" "}
               <strong>прогрессия</strong> (+1 повтор; от 18+ — вес ↑, 12 повт).
             </p>
           </CardContent>
