@@ -117,6 +117,7 @@ function blankUserRow(): UserInsert {
     gender: null,
     activity_level: null,
     body_fat_pct: null,
+    swim_equipment: null,
   };
 }
 

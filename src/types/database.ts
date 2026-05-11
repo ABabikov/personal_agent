@@ -19,6 +19,10 @@ export type SwimBlockSource = "own" | "curated" | "generator_seed";
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
+export type ExpenseKind = "expense" | "income" | "withdrawal" | "transfer";
+
+export type ExpenseSource = "manual" | "money_manager" | "bank_sber" | "agent";
+
 export type ToolCallDescriptor = {
   id: string;
   type: "function";
@@ -100,6 +104,32 @@ export interface Database {
             columns: ["workout_id"];
             isOneToOne: false;
             referencedRelation: "workouts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      gym_presets: {
+        Row: {
+          user_id: string;
+          slot: number;
+          label: string;
+          exercises: { name: string; sets: GymSet[] }[];
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          slot: number;
+          label?: string;
+          exercises?: { name: string; sets: GymSet[] }[];
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["gym_presets"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "gym_presets_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
             referencedColumns: ["id"];
           },
         ];
@@ -237,6 +267,169 @@ export interface Database {
         Relationships: [
           {
             foreignKeyName: "chat_messages_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      expense_accounts: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          currency: string;
+          is_archived: boolean;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["expense_accounts"]["Row"],
+          "id" | "created_at"
+        > & {
+          currency?: string;
+          is_archived?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["expense_accounts"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "expense_accounts_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      expense_categories: {
+        Row: {
+          id: string;
+          user_id: string;
+          parent_id: string | null;
+          name: string;
+          kind: ExpenseKind;
+          is_archived: boolean;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["expense_categories"]["Row"],
+          "id" | "created_at"
+        > & {
+          is_archived?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["expense_categories"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "expense_categories_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "expense_categories_parent_id_fkey";
+            columns: ["parent_id"];
+            isOneToOne: false;
+            referencedRelation: "expense_categories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      expense_transactions: {
+        Row: {
+          id: string;
+          user_id: string;
+          occurred_at: string;
+          posted_at: string | null;
+          account_id: string;
+          category_id: string | null;
+          kind: ExpenseKind;
+          amount: number;
+          currency: string;
+          description: string | null;
+          merchant: string | null;
+          mcc: string | null;
+          source: ExpenseSource;
+          external_id: string | null;
+          linked_transaction_id: string | null;
+          raw: Record<string, unknown> | null;
+          pending: boolean;
+          deleted_at: string | null;
+          deleted_reason: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["expense_transactions"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          posted_at?: string | null;
+          currency?: string;
+          description?: string | null;
+          merchant?: string | null;
+          mcc?: string | null;
+          external_id?: string | null;
+          linked_transaction_id?: string | null;
+          raw?: Record<string, unknown> | null;
+          pending?: boolean;
+          deleted_at?: string | null;
+          deleted_reason?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["expense_transactions"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "expense_transactions_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "expense_transactions_account_id_fkey";
+            columns: ["account_id"];
+            isOneToOne: false;
+            referencedRelation: "expense_accounts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "expense_transactions_category_id_fkey";
+            columns: ["category_id"];
+            isOneToOne: false;
+            referencedRelation: "expense_categories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      expense_imports: {
+        Row: {
+          id: string;
+          user_id: string;
+          source: string;
+          file_name: string | null;
+          period_from: string | null;
+          period_to: string | null;
+          rows_total: number;
+          rows_inserted: number;
+          rows_skipped: number;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["expense_imports"]["Row"],
+          "id" | "created_at"
+        > & {
+          file_name?: string | null;
+          period_from?: string | null;
+          period_to?: string | null;
+          rows_total?: number;
+          rows_inserted?: number;
+          rows_skipped?: number;
+          notes?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["expense_imports"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "expense_imports_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";

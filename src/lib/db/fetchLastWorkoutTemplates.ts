@@ -1,5 +1,7 @@
 import { supabase } from "@/lib/db/supabase";
 import type { ParsedGymWorkout, ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
+import type { WeekdayIdx } from "@/lib/features/workouts/analytics";
+import { weekdayIdx } from "@/lib/features/workouts/analytics";
 import type { GymSet } from "@/types/database";
 
 export type LastGymFromDb = {
@@ -11,6 +13,39 @@ export type LastSwimFromDb = {
   sourceWorkoutId: string;
   parsed: ParsedSwimWorkout;
 };
+
+async function gymHeadRowToLastGym(
+  w: {
+    id: string;
+    date: string;
+    body_weight: unknown;
+    total_tonnage: unknown;
+  }
+): Promise<{ data: LastGymFromDb } | { error: string }> {
+  const { data: exRows, error: eErr } = await supabase
+    .from("gym_exercises")
+    .select("exercise_name, order_index, sets, tonnage")
+    .eq("workout_id", w.id)
+    .order("order_index", { ascending: true });
+
+  if (eErr) return { error: eErr.message };
+  if (!exRows?.length) return { error: "Нет упражнений" };
+
+  const exercises = exRows.map((r) => ({
+    name: r.exercise_name,
+    sets: r.sets as GymSet[],
+    tonnage: Number(r.tonnage),
+  }));
+
+  const parsed: ParsedGymWorkout = {
+    date: w.date,
+    bodyWeight: w.body_weight != null ? Number(w.body_weight) : null,
+    exercises,
+    totalTonnage: w.total_tonnage != null ? Number(w.total_tonnage) : null,
+  };
+
+  return { data: { sourceWorkoutId: w.id, parsed } };
+}
 
 /**
  * Последняя сохранённая силовая (по дате, затем created_at) с подходами из gym_exercises.
@@ -32,29 +67,51 @@ export async function fetchLastGymWorkoutFromDb(
   const w = rows?.[0];
   if (!w) return { data: null };
 
-  const { data: exRows, error: eErr } = await supabase
-    .from("gym_exercises")
-    .select("exercise_name, order_index, sets, tonnage")
-    .eq("workout_id", w.id)
-    .order("order_index", { ascending: true });
+  const built = await gymHeadRowToLastGym(w);
+  if ("error" in built) return { data: null };
+  return built;
+}
 
-  if (eErr) return { error: eErr.message };
-  if (!exRows?.length) return { data: null };
+/**
+ * Последняя силовая в указанный день недели (локальный календарь, 0=вс..6=сб),
+ * по убыванию даты. Без fallback на другие дни.
+ */
+export async function fetchLastGymWorkoutForWeekdayFromDb(
+  userId: string,
+  weekday: WeekdayIdx
+): Promise<{ data: LastGymFromDb | null } | { error: string }> {
+  const { data: rows, error: wErr } = await supabase
+    .from("workouts")
+    .select("id, date, body_weight, total_tonnage")
+    .eq("user_id", userId)
+    .eq("type", "gym")
+    .is("deleted_at", null)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-  const exercises = exRows.map((r) => ({
-    name: r.exercise_name,
-    sets: r.sets as GymSet[],
-    tonnage: Number(r.tonnage),
-  }));
+  if (wErr) return { error: wErr.message };
+  const w = (rows ?? []).find((row) => weekdayIdx(row.date) === weekday);
+  if (!w) return { data: null };
 
-  const parsed: ParsedGymWorkout = {
-    date: w.date,
-    bodyWeight: w.body_weight != null ? Number(w.body_weight) : null,
-    exercises,
-    totalTonnage: w.total_tonnage != null ? Number(w.total_tonnage) : null,
-  };
+  const built = await gymHeadRowToLastGym(w);
+  if ("error" in built) return { data: null };
+  return built;
+}
 
-  return { data: { sourceWorkoutId: w.id, parsed } };
+/**
+ * Шаблон автозаполнения силовой для даты `YYYY-MM-DD`: сначала последняя тренировка
+ * в тот же день недели, иначе — просто последняя силовая (как раньше).
+ */
+export async function fetchGymAutofillTemplateFromDb(
+  userId: string,
+  dateIso: string
+): Promise<{ data: LastGymFromDb | null } | { error: string }> {
+  const wd = weekdayIdx(dateIso);
+  const forDay = await fetchLastGymWorkoutForWeekdayFromDb(userId, wd);
+  if ("error" in forDay) return forDay;
+  if (forDay.data) return forDay;
+  return fetchLastGymWorkoutFromDb(userId);
 }
 
 /**

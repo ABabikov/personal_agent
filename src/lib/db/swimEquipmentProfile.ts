@@ -27,10 +27,7 @@ export async function saveSwimEquipment(
 ): Promise<{ ok: true } | { error: string }> {
   const { error } = await supabase
     .from("users")
-    .update({
-      swim_equipment: swimEquipment,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ swim_equipment: swimEquipment })
     .eq("id", userId);
 
   if (error) return { error: error.message };

@@ -8,6 +8,7 @@ import {
   Waves,
   User,
   MessageSquare,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,11 @@ const NAV_ITEMS = [
     href: "/swim",
     label: "Плавание",
     icon: Waves,
+  },
+  {
+    href: "/expenses",
+    label: "Финансы",
+    icon: Wallet,
   },
   {
     href: "/chat",

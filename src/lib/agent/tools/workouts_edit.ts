@@ -16,7 +16,9 @@ import { supabase } from "@/lib/db/supabase";
 import { loadUserProfile } from "@/lib/db/profile";
 import { exerciseTonnage, totalTonnage } from "@/lib/features/workouts/tonnage";
 import { estimateGymCalories } from "@/lib/features/workouts/calories";
-import type { GymSet } from "@/types/database";
+import type { Database, GymSet } from "@/types/database";
+
+type WorkoutUpdate = Database["public"]["Tables"]["workouts"]["Update"];
 
 function parseSets(raw: unknown): GymSet[] {
   if (!Array.isArray(raw)) return [];
@@ -77,7 +79,7 @@ export const deleteWorkoutTool: AgentTool = {
     const id = String(args.id);
     const reason = typeof args.reason === "string" ? args.reason : null;
     const r = await fetchOwnedActiveWorkout(id, ctx.userId);
-    if ("error" in r) return { ok: false, error: r.error };
+    if ("error" in r) return { ok: false, error: r.error ?? "Ошибка" };
     const { error } = await supabase
       .from("workouts")
       .update({
@@ -193,10 +195,10 @@ export const updateWorkoutTool: AgentTool = {
   execute: async (args, ctx) => {
     const id = String(args.id);
     const r = await fetchOwnedActiveWorkout(id, ctx.userId);
-    if ("error" in r) return { ok: false, error: r.error };
+    if ("error" in r) return { ok: false, error: r.error ?? "Ошибка" };
     const w = r.workout;
 
-    const patch: Record<string, unknown> = {};
+    const patch: WorkoutUpdate = {};
     if (typeof args.date === "string" && args.date) patch.date = args.date;
     if (typeof args.notes === "string") patch.notes = args.notes ? args.notes : null;
     if (typeof args.body_weight === "number") patch.body_weight = args.body_weight;
@@ -299,7 +301,7 @@ export const updateGymExercisesTool: AgentTool = {
   execute: async (args, ctx) => {
     const id = String(args.workout_id);
     const r = await fetchOwnedActiveWorkout(id, ctx.userId);
-    if ("error" in r) return { ok: false, error: r.error };
+    if ("error" in r) return { ok: false, error: r.error ?? "Ошибка" };
     const w = r.workout;
     if (w.type !== "gym") {
       return { ok: false, error: `Тренировка id=${id} не gym (type=${w.type})` };
@@ -417,7 +419,7 @@ export const updateSwimSeriesTool: AgentTool = {
   execute: async (args, ctx) => {
     const id = String(args.workout_id);
     const r = await fetchOwnedActiveWorkout(id, ctx.userId);
-    if ("error" in r) return { ok: false, error: r.error };
+    if ("error" in r) return { ok: false, error: r.error ?? "Ошибка" };
     const w = r.workout;
     if (w.type !== "swim") {
       return { ok: false, error: `Тренировка id=${id} не swim (type=${w.type})` };

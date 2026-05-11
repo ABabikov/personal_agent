@@ -34,6 +34,9 @@ function rowToProfile(row: UserRow): ProfileForm {
   };
 }
 
+const USER_PROFILE_SELECT =
+  "id, telegram_id, weight, height, age, gender, activity_level, body_fat_pct, swim_equipment, created_at, updated_at" as const;
+
 /**
  * Читает строку `users` и возвращает заполненную форму.
  * Если строки нет — `data: null` (форма покажет дефолты).
@@ -43,7 +46,7 @@ export async function loadUserProfile(
 ): Promise<{ data: ProfileForm | null } | { error: string }> {
   const { data, error } = await supabase
     .from("users")
-    .select("id, telegram_id, weight, height, age, gender, activity_level, body_fat_pct, created_at, updated_at")
+    .select(USER_PROFILE_SELECT)
     .eq("id", userId)
     .maybeSingle();
 
@@ -53,35 +56,75 @@ export async function loadUserProfile(
 }
 
 /**
- * Сохраняет профиль через upsert по id — на случай, если строки ещё нет
- * (например, UUID задан в .env, но в БД пользователь не создан).
+ * Сохраняет профиль: обновление существующей строки или вставка с заданным id,
+ * если строки ещё нет (например, UUID из .env, но пользователь не создан в БД).
  *
  * Возвращает сохранённую строку (то, что реально лежит в БД после операции).
- * Telegram_id НЕ трогаем — если в строке уже что-то есть, не перетираем на null.
+ * Telegram и swim_equipment при вставке задаём в null; при обновлении не трогаем.
  */
 export async function saveUserProfile(
   userId: string,
   profile: ProfileForm
 ): Promise<{ ok: true; data: ProfileForm } | { error: string }> {
+  const { data: existing, error: selErr } = await supabase
+    .from("users")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (selErr) return { error: selErr.message };
+
+  const patch: Database["public"]["Tables"]["users"]["Update"] = {
+    weight: profile.weight,
+    height: profile.height,
+    age: profile.age,
+    gender: profile.gender,
+    activity_level: profile.activity_level,
+    body_fat_pct: profile.body_fat_pct,
+  };
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("users")
+      .update(patch)
+      .eq("id", userId)
+      .select(USER_PROFILE_SELECT)
+      .single();
+
+    if (error) return { error: error.message };
+    if (!data) {
+      return {
+        error: "Сохранение вернуло пустую строку — проверь RLS-политики таблицы `users`.",
+      };
+    }
+    return { ok: true, data: rowToProfile(data) };
+  }
+
+  type UserInsert = Database["public"]["Tables"]["users"]["Insert"];
+  const newRow = {
+    id: userId,
+    telegram_id: null,
+    weight: profile.weight,
+    height: profile.height,
+    age: profile.age,
+    gender: profile.gender,
+    activity_level: profile.activity_level,
+    body_fat_pct: profile.body_fat_pct,
+    swim_equipment: null,
+  };
+
   const { data, error } = await supabase
     .from("users")
-    .upsert(
-      {
-        id: userId,
-        weight: profile.weight,
-        height: profile.height,
-        age: profile.age,
-        gender: profile.gender,
-        activity_level: profile.activity_level,
-        body_fat_pct: profile.body_fat_pct,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    )
-    .select("id, telegram_id, weight, height, age, gender, activity_level, body_fat_pct, created_at, updated_at")
+    /** PostgREST принимает id для явного UUID; тип Insert из генератора без поля id */
+    .insert(newRow as unknown as UserInsert)
+    .select(USER_PROFILE_SELECT)
     .single();
 
   if (error) return { error: error.message };
-  if (!data) return { error: "Сохранение вернуло пустую строку — проверь RLS-политики таблицы `users`." };
+  if (!data) {
+    return {
+      error: "Сохранение вернуло пустую строку — проверь RLS-политики таблицы `users`.",
+    };
+  }
   return { ok: true, data: rowToProfile(data) };
 }

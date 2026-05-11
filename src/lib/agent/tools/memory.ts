@@ -46,7 +46,6 @@ export const rememberFactTool: AgentTool = {
           value,
           source: "tool:remember_fact",
           embedding: emb?.embedding ?? null,
-          updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id,key" }
       );

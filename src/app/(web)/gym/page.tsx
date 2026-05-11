@@ -23,11 +23,25 @@ import type { GymSet } from "@/types/database";
 import { saveGymWorkoutToSupabase } from "@/lib/db/saveWorkout";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import {
+  fetchGymAutofillTemplateFromDb,
+  fetchLastGymWorkoutForWeekdayFromDb,
   fetchLastGymWorkoutFromDb,
   type LastGymFromDb,
 } from "@/lib/db/fetchLastWorkoutTemplates";
+import {
+  WEEKDAY_RU_LONG,
+  weekdayIdx,
+  type WeekdayIdx,
+} from "@/lib/features/workouts/analytics";
 import { loadUserProfile } from "@/lib/db/profile";
 import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
+
+/** Пресеты 1–3 = последняя силовая в этот день недели (локальный календарь). */
+const SPLIT_PRESET_WEEKDAY: Record<"1" | "2" | "3", WeekdayIdx> = {
+  "1": 1,
+  "2": 3,
+  "3": 5,
+};
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -57,20 +71,27 @@ function todayString() {
 }
 
 function GymWorkoutEditor({
-  lastWorkout,
+  date,
+  onDateChange,
+  templateWorkout,
   profileWeightKg,
   onSaveSuccess,
 }: {
-  lastWorkout: ParsedGymWorkout | null;
+  date: string;
+  onDateChange: (iso: string) => void;
+  templateWorkout: ParsedGymWorkout | null;
   profileWeightKg: number | null;
   onSaveSuccess?: () => void;
 }) {
-  const [date, setDate] = useState(todayString);
   const [bodyWeight, setBodyWeight] = useState(() =>
-    lastWorkout?.bodyWeight != null ? String(lastWorkout.bodyWeight) : ""
+    templateWorkout?.bodyWeight != null
+      ? String(templateWorkout.bodyWeight)
+      : ""
   );
   const [exercises, setExercises] = useState<ExerciseInput[]>(() =>
-    lastWorkout ? gymWorkoutToExerciseInputs(lastWorkout, true) : [newExercise()]
+    templateWorkout
+      ? gymWorkoutToExerciseInputs(templateWorkout, true)
+      : [newExercise()]
   );
   const [notes, setNotes] = useState("");
   const [durationStr, setDurationStr] = useState("");
@@ -78,12 +99,11 @@ function GymWorkoutEditor({
     "idle"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
-
   function applyFromLast(withProgression: boolean) {
-    if (!lastWorkout) return;
-    setExercises(gymWorkoutToExerciseInputs(lastWorkout, withProgression));
-    if (lastWorkout.bodyWeight != null) {
-      setBodyWeight(String(lastWorkout.bodyWeight));
+    if (!templateWorkout) return;
+    setExercises(gymWorkoutToExerciseInputs(templateWorkout, withProgression));
+    if (templateWorkout.bodyWeight != null) {
+      setBodyWeight(String(templateWorkout.bodyWeight));
     }
   }
 
@@ -200,7 +220,7 @@ function GymWorkoutEditor({
 
   return (
     <div className="space-y-4">
-      {lastWorkout && (
+      {templateWorkout && (
         <div className="flex gap-2">
           <Button
             variant="secondary"
@@ -231,7 +251,7 @@ function GymWorkoutEditor({
                 id="date"
                 type="date"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => onDateChange(e.target.value)}
                 className="mt-1.5"
               />
             </div>
@@ -394,17 +414,29 @@ function GymWorkoutEditor({
   );
 }
 
+type FillSource = "history" | "1" | "2" | "3";
+
 export default function GymPage() {
   useRegisterPageChatContext(
     "Зал",
-    "Запись силовой тренировки: упражнения, подходы (вес × повторения), тоннаж и оценка калорий."
+    "Силовая: шаблон из истории по дате или последние записи пн / ср / пт; прогрессия и калории."
   );
 
   const [hydrated, setHydrated] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
   const [lastFetchError, setLastFetchError] = useState<string | null>(null);
   const [lastTemplate, setLastTemplate] = useState<LastGymFromDb | null>(null);
+  const [globalLastTemplate, setGlobalLastTemplate] =
+    useState<LastGymFromDb | null>(null);
   const [profileWeightKg, setProfileWeightKg] = useState<number | null>(null);
+  const [gymDate, setGymDate] = useState(todayString);
+  const [fillSource, setFillSource] = useState<FillSource>("history");
+  /** Последняя силовая в пн / ср / пт — для «пресетов» 1–3 */
+  const [splitDayTemplates, setSplitDayTemplates] = useState<{
+    mon: LastGymFromDb | null;
+    wed: LastGymFromDb | null;
+    fri: LastGymFromDb | null;
+  }>({ mon: null, wed: null, fri: null });
 
   const refreshLast = useCallback(async () => {
     const user = await getWorkoutUserId();
@@ -412,24 +444,47 @@ export default function GymPage() {
       setUserError(user.error);
       setLastFetchError(null);
       setLastTemplate(null);
+      setGlobalLastTemplate(null);
+      setSplitDayTemplates({ mon: null, wed: null, fri: null });
       return;
     }
     setUserError(null);
-    const [lastRes, profileRes] = await Promise.all([
+    const [
+      autofillRes,
+      globalRes,
+      profileRes,
+      monRes,
+      wedRes,
+      friRes,
+    ] = await Promise.all([
+      fetchGymAutofillTemplateFromDb(user.userId, gymDate),
       fetchLastGymWorkoutFromDb(user.userId),
       loadUserProfile(user.userId),
+      fetchLastGymWorkoutForWeekdayFromDb(user.userId, SPLIT_PRESET_WEEKDAY["1"]),
+      fetchLastGymWorkoutForWeekdayFromDb(user.userId, SPLIT_PRESET_WEEKDAY["2"]),
+      fetchLastGymWorkoutForWeekdayFromDb(user.userId, SPLIT_PRESET_WEEKDAY["3"]),
     ]);
-    if ("error" in lastRes) {
-      setLastFetchError(lastRes.error);
+    if ("error" in autofillRes) {
+      setLastFetchError(autofillRes.error);
       setLastTemplate(null);
     } else {
       setLastFetchError(null);
-      setLastTemplate(lastRes.data);
+      setLastTemplate(autofillRes.data);
+    }
+    if ("error" in globalRes) {
+      setGlobalLastTemplate(null);
+    } else {
+      setGlobalLastTemplate(globalRes.data);
     }
     if ("data" in profileRes && profileRes.data?.weight) {
       setProfileWeightKg(profileRes.data.weight);
     }
-  }, []);
+    setSplitDayTemplates({
+      mon: "error" in monRes ? null : monRes.data,
+      wed: "error" in wedRes ? null : wedRes.data,
+      fri: "error" in friRes ? null : friRes.data,
+    });
+  }, [gymDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -443,6 +498,36 @@ export default function GymPage() {
   }, [refreshLast]);
 
   const lastParsed = lastTemplate?.parsed ?? null;
+  const globalParsed = globalLastTemplate?.parsed ?? null;
+  const autofillMatchesWeekday =
+    lastParsed != null && weekdayIdx(lastParsed.date) === weekdayIdx(gymDate);
+
+  const templateWorkout = useMemo((): ParsedGymWorkout | null => {
+    if (fillSource === "history") return lastParsed;
+    const bundle =
+      fillSource === "1"
+        ? splitDayTemplates.mon
+        : fillSource === "2"
+          ? splitDayTemplates.wed
+          : splitDayTemplates.fri;
+    return bundle?.parsed ?? null;
+  }, [fillSource, lastParsed, splitDayTemplates]);
+
+  const gymEditorMountKey = useMemo(() => {
+    if (fillSource === "history") return "history";
+    const bundle =
+      fillSource === "1"
+        ? splitDayTemplates.mon
+        : fillSource === "2"
+          ? splitDayTemplates.wed
+          : splitDayTemplates.fri;
+    return `split-${fillSource}-${bundle?.sourceWorkoutId ?? "none"}-${bundle?.parsed.date ?? ""}`;
+  }, [fillSource, splitDayTemplates]);
+
+  const splitPresetWeekdayIdx: WeekdayIdx | null =
+    fillSource === "history"
+      ? null
+      : SPLIT_PRESET_WEEKDAY[fillSource as "1" | "2" | "3"];
 
   return (
     <div className="space-y-4">
@@ -469,34 +554,174 @@ export default function GymPage() {
         </p>
       )}
 
-      {hydrated && !userError && lastParsed && (
+      {hydrated && !userError && fillSource === "history" && lastParsed && (
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">
-              Последняя в базе:{" "}
-              <span className="font-medium text-foreground">
-                {new Date(lastParsed.date + "T12:00:00").toLocaleDateString("ru")}
-              </span>
+              {autofillMatchesWeekday ? (
+                <>
+                  Автозаполнение от последней{" "}
+                  <span className="font-medium text-foreground">
+                    {WEEKDAY_RU_LONG[weekdayIdx(gymDate)]}
+                  </span>
+                  :{" "}
+                  <span className="font-medium text-foreground">
+                    {new Date(lastParsed.date + "T12:00:00").toLocaleDateString(
+                      "ru"
+                    )}
+                  </span>
+                </>
+              ) : (
+                <>
+                  В{" "}
+                  <span className="font-medium text-foreground">
+                    {WEEKDAY_RU_LONG[weekdayIdx(gymDate)]}
+                  </span>{" "}
+                  ещё не было записей — для кнопок взята последняя силовая (
+                  <span className="font-medium text-foreground">
+                    {new Date(lastParsed.date + "T12:00:00").toLocaleDateString(
+                      "ru"
+                    )}
+                  </span>
+                  ).
+                </>
+              )}
               {lastParsed.totalTonnage != null && (
                 <>
                   {" "}
-                  · тоннаж{" "}
+                  · тоннаж шаблона{" "}
                   {Math.round(lastParsed.totalTonnage).toLocaleString("ru")} кг
                 </>
               )}
-              . Кнопки в форме —{" "}
-              <strong>прогрессия</strong> (+1 повтор; от 18+ — вес ↑, 12 повт).
+              {globalParsed &&
+                globalParsed.date !== lastParsed.date &&
+                globalParsed.totalTonnage != null && (
+                  <>
+                    {" "}
+                    Всего последняя запись:{" "}
+                    {new Date(
+                      globalParsed.date + "T12:00:00"
+                    ).toLocaleDateString("ru")}
+                    , тоннаж{" "}
+                    {Math.round(globalParsed.totalTonnage).toLocaleString("ru")}{" "}
+                    кг.
+                  </>
+                )}
+              {" "}
+              Кнопки в форме — <strong>прогрессия</strong> (+1 повтор; от 18+ —
+              вес ↑, 12 повт).
             </p>
           </CardContent>
         </Card>
       )}
 
+      {hydrated && !userError && fillSource === "history" && !lastParsed && (
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs text-muted-foreground">
+              Пока нет ни одной сохранённой силовой — заполните форму вручную или
+              выберите понедельник / среду / пятницу ниже. После первой записи
+              появится автозаполнение по дню недели для выбранной даты.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {hydrated &&
+        !userError &&
+        fillSource !== "history" &&
+        splitPresetWeekdayIdx !== null &&
+        templateWorkout && (
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">
+                Шаблон — последняя силовая в{" "}
+                <span className="font-medium text-foreground">
+                  {WEEKDAY_RU_LONG[splitPresetWeekdayIdx]}
+                </span>
+                :{" "}
+                <span className="font-medium text-foreground">
+                  {new Date(
+                    templateWorkout.date + "T12:00:00"
+                  ).toLocaleDateString("ru")}
+                </span>
+                {" — "}
+                {templateWorkout.exercises.length} упражнений
+                {templateWorkout.totalTonnage != null && (
+                  <>
+                    , тоннаж шаблона{" "}
+                    {Math.round(templateWorkout.totalTonnage).toLocaleString(
+                      "ru"
+                    )}{" "}
+                    кг
+                  </>
+                )}
+                . Кнопки — <strong>прогрессия</strong> (+1 повтор; от 18+ — вес ↑,
+                12 повт).
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+      {hydrated &&
+        !userError &&
+        fillSource !== "history" &&
+        splitPresetWeekdayIdx !== null &&
+        !templateWorkout && (
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">
+                В{" "}
+                <span className="font-medium text-foreground">
+                  {WEEKDAY_RU_LONG[splitPresetWeekdayIdx]}
+                </span>{" "}
+                пока нет ни одной сохранённой силовой — начните с пустой формы или
+                выберите другой источник шаблона.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
       {hydrated && !userError && (
-        <GymWorkoutEditor
-          lastWorkout={lastParsed}
-          profileWeightKg={profileWeightKg}
-          onSaveSuccess={() => void refreshLast()}
-        />
+        <>
+          <Card>
+            <CardContent className="space-y-3 pt-4">
+              <div>
+                <Label htmlFor="fill-source">
+                  Шаблон для «прогрессия» / «как было»
+                </Label>
+                <select
+                  id="fill-source"
+                  className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={fillSource}
+                  onChange={(e) =>
+                    setFillSource(e.target.value as FillSource)
+                  }
+                >
+                  <option value="history">
+                    По дате в форме (день недели + запасной вариант)
+                  </option>
+                  <option value="1">Понедельник — последняя запись</option>
+                  <option value="2">Среда — последняя запись</option>
+                  <option value="3">Пятница — последняя запись</option>
+                </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Пресеты 1–3 всегда берут последнюю силовую в свой день недели,
+                  независимо от выбранной даты тренировки.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <GymWorkoutEditor
+            key={gymEditorMountKey}
+            date={gymDate}
+            onDateChange={setGymDate}
+            templateWorkout={templateWorkout}
+            profileWeightKg={profileWeightKg}
+            onSaveSuccess={() => void refreshLast()}
+          />
+        </>
       )}
     </div>
   );

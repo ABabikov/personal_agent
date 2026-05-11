@@ -1,0 +1,53 @@
+# Expenses Tracker — Status
+
+## Current Phase: Phase 1 (MVP)
+## Status: In Progress — данные импортированы (2333 операции), страница `/expenses` со фильтрами / KPI / donut по категориям / помесячной динамикой / топ-мерчантами / таблицей операций работает
+
+## Progress
+
+| Task                                                                  | Status      | Date       |
+|-----------------------------------------------------------------------|-------------|------------|
+| Анализ источников: Money Manager `.xls` (HTML) и Сбер выписка `.xlsx`  | Done        | 2026-05-11 |
+| Доки: description.md / plan.md / status.md                             | Done        | 2026-05-11 |
+| Миграция `009_expenses_schema.sql` (accounts/categories/transactions/imports) | Done | 2026-05-11 |
+| Типы Database (expense_accounts/categories/transactions/imports) в `src/types/database.ts` | Done | 2026-05-11 |
+| Парсер Money Manager `.xls` (HTML) в `src/lib/features/expenses/moneyManagerImport.ts` | Done | 2026-05-11 |
+| Маппинг категорий MM → унифицированные `scripts/expenses/categoryMap.ts` (52 пары, 19 итоговых категорий) | Done | 2026-05-11 |
+| Скрипт `npm run seed:expenses` + `:dry` + `--print-unmapped` (идемпотентно через `external_id`) | Done | 2026-05-11 |
+| Полный dry-run на реальных данных: 2333 строки, 0 незамапленных                         | Done | 2026-05-11 |
+| Миграции `009` + `010` применены, реальный прогон `npm run seed:expenses` (2333 операции) | Done        | 2026-05-11 |
+| Миграция `010_expense_tx_upsert_unique_fix.sql` — полный unique для upsert PostgREST | Done        | 2026-05-11 |
+| Data layer `src/lib/db/expensesData.ts` (fetch + агрегации `totals` / `expensesByParentCategory` / `monthlyBuckets` / `topMerchants`) | Done | 2026-05-11 |
+| Чарты: `pie-chart.tsx` (donut с центром и тултипом), `bar-chart.tsx` (помесячно) | Done | 2026-05-11 |
+| Страница `/expenses`: переключатель периода, фильтры (счёт/категория/тип/поиск), KPI, donut, помесячно, топ-мерчанты, таблица операций | Done | 2026-05-11 |
+| Навигация: ссылка «Финансы» в BottomNav + метка в `CHAT_ROUTE_LABELS`                  | Done        | 2026-05-11 |
+| Форма `/expenses/new` (ручное добавление операции)                                      | Not Started | - |
+| Редактирование / soft-delete в таблице операций                                         | Not Started | - |
+| Страница `/expenses` (таблица + фильтры)                                | Not Started | - |
+| Пай-чарт по категориям (inline SVG)                                    | Not Started | - |
+| Помесячная динамика расходов/доходов                                   | Not Started | - |
+| Форма `/expenses/new` (ручное добавление)                              | Not Started | - |
+| Редактирование / soft-delete операции                                  | Not Started | - |
+| Парсер Сбер `.xlsx` + UI `/expenses/import`                            | Not Started | - |
+| Таблица правил автокатегоризации `expense_category_rules`              | Not Started | - |
+| Seed правил по топ-MCC (5411, 5814, 5541, 5912, ...)                   | Not Started | - |
+| Дедуп между Money Manager и банком (soft-link)                          | Not Started | - |
+| Тулы агента: add / update / delete / get_period / top_categories / find | Not Started | - |
+| Бюджеты + алёрты при превышении                                         | Not Started | - |
+| Инсайты «рост vs прошлый месяц», крупные разовые траты                  | Not Started | - |
+
+## Blockers
+
+- None.
+
+## Decisions
+
+- **Категории:** унифицируем при импорте. Берём пары `(MM категория, MM подкатегория)` и через маппинг (`scripts/expenses/categoryMap.ts`) переводим в чистые названия без эмодзи. Незамапленные пары валят импорт — сначала `dry-run --print-unmapped`, потом дополнение карты, потом реальный прогон.
+- **Дедуп MM ↔ банк не делаем.** Пользователь сам режет периоды: вся история до даты X — из MM, после — только из банка. Внутри одного source уникальность по `(user_id, source, external_id)` сохраняется.
+
+## Notes
+
+- **Источник 1:** `Money Manager_11-05-2026.xls` (HTML-таблица под видом xls): 2333 операции, 2024-2026, RUB. Типы: Расход 2198 / Доход 131 / Снятие 4. Счета: Карта (2249) / Кошелек (68) / Алипей (13) / Банк (3). ~18 верхнеуровневых категорий (с эмодзи), 52 пары (категория, подкатегория). Файл — основа сидинга.
+- **Источник 2:** `25 апреля 2026 - 11 мая 2026.xlsx` (Сбер выписка): шапка строк 7-14, заголовок таблицы операций — строка 20, операции — с 21. Уникальный код операции в колонке `Код` (`CRD_*` / `A*` / `B*`), сумма в колонке «Сумма в валюте счёта» (отрицательная = расход), MCC в описании.
+- `Снятие` в MM (4 операции) трактуем как `kind = 'withdrawal'` и по умолчанию исключаем из «расходов» в чартах.
+- В одном файле выписки кроме операций приходят `Статус = HOLD` — пишем их с `pending = true`, при следующем импорте сравниваем по `external_id` и при появлении `Выполнен` обновляем строку, а не плодим дубль.
