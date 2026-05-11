@@ -12,6 +12,7 @@ import {
 } from "@/components/workout/swim-series-card";
 import { TotalCard } from "@/components/workout/total-card";
 import { totalDistance } from "@/lib/features/swimming/distance";
+import { inferBreakdownForSeries } from "@/lib/features/swimming/inferBreakdown";
 import { generateSwimWorkoutPlan } from "@/lib/features/swimming/generatePlan";
 import { buildWorkoutFromCatalog } from "@/lib/features/swimming/catalogBuilder";
 import {
@@ -46,7 +47,13 @@ function newId() {
 }
 
 function newSeries(): SwimSeriesInput {
-  return { id: newId(), distance: "", description: "" };
+  return {
+    id: newId(),
+    distance: "",
+    description: "",
+    reps: "",
+    perRepM: "",
+  };
 }
 
 function todayString() {
@@ -93,7 +100,32 @@ function SwimWorkoutEditor({
 
   function updateDistance(id: string, distance: string) {
     setSeries((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, distance } : s))
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, distance, reps: "", perRepM: "" }
+          : s
+      )
+    );
+  }
+
+  function updateBreakdown(id: string, reps: string, perRepM: string) {
+    const r = parseInt(reps.trim(), 10);
+    const m = parseInt(perRepM.trim(), 10);
+    const ok =
+      Number.isFinite(r) &&
+      Number.isFinite(m) &&
+      r > 0 &&
+      m > 0;
+    setSeries((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        return {
+          ...s,
+          reps,
+          perRepM,
+          ...(ok ? { distance: String(r * m) } : {}),
+        };
+      })
     );
   }
 
@@ -165,6 +197,9 @@ function SwimWorkoutEditor({
             index={idx}
             canDelete={series.length > 1}
             onDistanceChange={(distance) => updateDistance(s.id, distance)}
+            onBreakdownChange={(reps, perRepM) =>
+              updateBreakdown(s.id, reps, perRepM)
+            }
             onDescriptionChange={(description) =>
               updateDescription(s.id, description)
             }
@@ -380,11 +415,16 @@ export default function SwimPage() {
       if (!plan || plan.length === 0) {
         plan = generateSwimWorkoutPlan(vol, focus);
       }
-      const inputs: SwimSeriesInput[] = plan.map((s) => ({
-        id: newId(),
-        distance: String(s.distance),
-        description: s.description,
-      }));
+      const inputs: SwimSeriesInput[] = plan.map((s) => {
+        const inferred = inferBreakdownForSeries(s.distance, s.description);
+        return {
+          id: newId(),
+          distance: String(s.distance),
+          description: s.description,
+          reps: inferred?.reps ?? "",
+          perRepM: inferred?.perRepM ?? "",
+        };
+      });
       const rev = Date.now();
       setPlanDraft({ revision: rev, rows: inputs });
       setGeneratedAt(rev);

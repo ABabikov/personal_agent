@@ -9,24 +9,17 @@ export interface SwimSeriesInput {
   id: string;
   distance: string;
   description: string;
+  /** Разбивка для авто-пересчёта метража: повторов × метров на отрезок */
+  reps?: string;
+  perRepM?: string;
 }
-
-const QUICK_HINTS = [
-  "кроль",
-  "брасс",
-  "спина",
-  "ласты",
-  "лопатки",
-  "колобашка",
-  "80%",
-  "отдых 30\"",
-];
 
 interface SwimSeriesCardProps {
   series: SwimSeriesInput;
   index: number;
   canDelete: boolean;
   onDistanceChange: (distance: string) => void;
+  onBreakdownChange: (reps: string, perRepM: string) => void;
   onDescriptionChange: (description: string) => void;
   onDelete: () => void;
 }
@@ -36,24 +29,32 @@ export function SwimSeriesCard({
   index,
   canDelete,
   onDistanceChange,
+  onBreakdownChange,
   onDescriptionChange,
   onDelete,
 }: SwimSeriesCardProps) {
-  function addHint(hint: string) {
-    const newDesc = series.description
-      ? `${series.description} ${hint}`
-      : hint;
-    onDescriptionChange(newDesc);
-  }
+  const reps = series.reps ?? "";
+  const perRepM = series.perRepM ?? "";
+  const r = parseInt(reps.trim(), 10);
+  const m = parseInt(perRepM.trim(), 10);
+  const productOk =
+    Number.isFinite(r) &&
+    Number.isFinite(m) &&
+    r > 0 &&
+    m > 0 &&
+    r * m > 0;
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
-      {/* Header */}
+      {/* Header: итоговый метраж серии (то, что уходит в БД) */}
       <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2.5">
         <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-swim/15 text-xs font-medium text-swim">
           {index + 1}
         </span>
-        <div className="flex flex-1 items-center gap-2">
+        <div className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[11px] text-muted-foreground shrink-0">
+            Итого
+          </span>
           <Input
             type="number"
             min="0"
@@ -76,6 +77,45 @@ export function SwimSeriesCard({
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border px-3 py-2">
+        <span className="text-[11px] text-muted-foreground shrink-0">
+          Разбивка
+        </span>
+        <Input
+          type="number"
+          min="1"
+          step="1"
+          placeholder="×"
+          title="Число повторов"
+          value={reps}
+          onChange={(e) =>
+            onBreakdownChange(e.target.value, perRepM)
+          }
+          className="h-7 w-14 px-1.5 text-center text-xs tabular-nums"
+        />
+        <span className="text-muted-foreground">×</span>
+        <Input
+          type="number"
+          min="25"
+          step="25"
+          placeholder="м"
+          title="Метров на один повтор"
+          value={perRepM}
+          onChange={(e) => onBreakdownChange(reps, e.target.value)}
+          className="h-7 w-16 px-1.5 text-center text-xs tabular-nums"
+        />
+        <span className="text-[11px] text-muted-foreground">м</span>
+        {productOk && (
+          <span className="text-[11px] tabular-nums text-swim">
+            = {r * m} м → в «Итого»
+          </span>
+        )}
+        <span className="text-[10px] leading-tight text-muted-foreground sm:max-w-[14rem]">
+          Меняете 4×200 на 5×200 здесь — метраж обновится. Правка только текста
+          описания метраж не трогает.
+        </span>
+      </div>
+
       {/* Description: textarea — длинные тексты от генератора не помещаются в однострочный input */}
       <div className="p-3">
         <textarea
@@ -88,21 +128,6 @@ export function SwimSeriesCard({
             "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           )}
         />
-        <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-          Быстрые фразы ниже — это не «теги серии»: при нажатии текст добавляется в описание (можно править вручную).
-        </p>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {QUICK_HINTS.map((hint) => (
-            <button
-              key={hint}
-              type="button"
-              onClick={() => addHint(hint)}
-              className="rounded-md border border-swim/20 bg-swim/10 px-2 py-1 text-xs text-swim transition-colors hover:bg-swim/20"
-            >
-              + {hint}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );
