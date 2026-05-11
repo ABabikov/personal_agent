@@ -28,37 +28,53 @@ function writeStoredUserId(id: string): void {
   }
 }
 
-/** Ответ /api/workout-user за сессию вкладки (не дергать на каждый экран). */
-let serverUserIdMemo: string | null | undefined;
+/**
+ * Успешный ответ /api/workout-user кэшируем; ошибки сети/401 — нет (иначе после логина
+ * остаётся «пустой» кэш и снова берётся старый localStorage с другого устройства).
+ */
+type ServerUserCache =
+  | undefined
+  | { ok: true; userId: string | null };
+
+let serverUserCache: ServerUserCache;
+
+/** Сброс после входа по паролю (на случай SPA без полной перезагрузки модулей). */
+export function invalidateWorkoutUserIdCache(): void {
+  serverUserCache = undefined;
+}
 
 /** Серверный WORKOUT_USER_ID — один UUID для всех устройств (см. /api/workout-user). */
 async function fetchServerWorkoutUserId(): Promise<string | null> {
   if (typeof window === "undefined") return null;
-  if (serverUserIdMemo !== undefined) return serverUserIdMemo;
+  if (serverUserCache?.ok) {
+    return serverUserCache.userId && serverUserCache.userId.length > 0
+      ? serverUserCache.userId
+      : null;
+  }
   try {
     const r = await fetch("/api/workout-user", {
       credentials: "same-origin",
       cache: "no-store",
     });
     if (!r.ok) {
-      serverUserIdMemo = null;
       return null;
     }
     const j: unknown = await r.json();
-    if (
-      j &&
-      typeof j === "object" &&
-      "userId" in j &&
-      typeof (j as { userId: unknown }).userId === "string"
-    ) {
-      const id = (j as { userId: string }).userId.trim();
-      serverUserIdMemo = id.length > 0 ? id : null;
-      return serverUserIdMemo;
+    if (j && typeof j === "object" && "userId" in j) {
+      const raw = (j as { userId: unknown }).userId;
+      if (raw === null) {
+        serverUserCache = { ok: true, userId: null };
+        return null;
+      }
+      if (typeof raw === "string") {
+        const id = raw.trim();
+        serverUserCache = { ok: true, userId: id.length > 0 ? id : null };
+        return id.length > 0 ? id : null;
+      }
     }
-    serverUserIdMemo = null;
+    serverUserCache = { ok: true, userId: null };
     return null;
   } catch {
-    serverUserIdMemo = null;
     return null;
   }
 }
@@ -78,15 +94,12 @@ function blankUserRow(): UserInsert {
 }
 
 /**
- * Resolves `users.id` for workout inserts: env override, then localStorage,
- * then creates an empty `users` row (needs INSERT policy for `anon` on `users`).
+ * Resolves `users.id`: сначала сервер (WORKOUT_USER_ID на Vercel), затем NEXT_PUBLIC_* из билда,
+ * затем localStorage, затем создание строки в `users`.
  */
 export async function getWorkoutUserId(): Promise<
   { userId: string } | { error: string }
 > {
-  const fromEnv = envUserId();
-  if (fromEnv) return { userId: fromEnv };
-
   if (typeof window === "undefined") {
     return { error: "Сохранение только в браузере." };
   }
@@ -96,6 +109,9 @@ export async function getWorkoutUserId(): Promise<
     writeStoredUserId(fromServer);
     return { userId: fromServer };
   }
+
+  const fromEnv = envUserId();
+  if (fromEnv) return { userId: fromEnv };
 
   const cached = readStoredUserId();
   if (cached) return { userId: cached };
@@ -108,7 +124,7 @@ export async function getWorkoutUserId(): Promise<
 
   if (error || !data) {
     const hint =
-      "Проверь RLS/политики для `users` (INSERT для anon) или задай UUID строки в .env: NEXT_PUBLIC_WORKOUT_USER_ID.";
+      "Проверь RLS/политики для `users` (INSERT для anon) или задай WORKOUT_USER_ID / NEXT_PUBLIC_WORKOUT_USER_ID в Vercel.";
     return {
       error: error?.message
         ? `${error.message}. ${hint}`

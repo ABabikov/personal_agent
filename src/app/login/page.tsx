@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { invalidateWorkoutUserIdCache } from "@/lib/db/workoutUserId";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,7 @@ function LoginForm() {
         setError(data.error ?? `Ошибка ${res.status}`);
         return;
       }
+      invalidateWorkoutUserIdCache();
       window.location.href = nextPath;
     } finally {
       setLoading(false);

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Единый UUID пользователя для всех клиентов (десктоп, мобильный), без дублирования
  * NEXT_PUBLIC в бандле. Задаётся в Vercel как WORKOUT_USER_ID (строка из Supabase `users.id`).
