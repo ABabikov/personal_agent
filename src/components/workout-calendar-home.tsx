@@ -27,6 +27,7 @@ import {
   type PeriodData,
   type PeriodScope,
 } from "@/lib/db/calendarData";
+import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 import {
   isoLocalDate,
   periodTotals,
@@ -71,6 +72,11 @@ function periodLabel(
 }
 
 export function WorkoutCalendarHome() {
+  useRegisterPageChatContext(
+    "Календарь",
+    "Главный экран: календарь тренировок, сводка выбранного периода и переход к дням."
+  );
+
   const today = new Date();
   const [scope, setScope] = useState<PeriodScope>("month");
   const [year, setYear] = useState(today.getFullYear());

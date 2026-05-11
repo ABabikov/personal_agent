@@ -18,12 +18,15 @@ import {
   toApiMessages,
 } from "@/lib/agent/memory/store";
 import { recallContext } from "@/lib/agent/memory/recall";
+import { buildSessionSnapshot } from "@/lib/agent/context/sessionSnapshot";
 import type { ToolCallDescriptor } from "@/types/database";
 
 export type AgentRunInput = {
   userId: string;
   conversationId: string;
   userMessage: string;
+  /** Текстовый снимок экрана (маршрут, видимые данные) — усиливает персонализацию ответа. */
+  pageContext?: string;
   /** Жёсткий потолок шагов в ReAct-цикле. */
   maxIterations?: number;
 };
@@ -44,17 +47,22 @@ export type AgentRunResult = {
 };
 
 export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
-  const maxIterations = input.maxIterations ?? 6;
+  const maxIterations = input.maxIterations ?? 8;
 
   // 1) Загружаем историю текущего conversation_id (до этого сообщения).
   const prior = await loadConversation(input.userId, input.conversationId);
 
-  // 2) Семантический поиск по прошлым разговорам и фактам.
-  const recall = await recallContext({
-    userId: input.userId,
-    queryText: input.userMessage,
-    excludeConversationId: input.conversationId,
-  });
+  // 2) Параллельно: семантический recall + детерминированный снимок профиля/нагрузки/фактов.
+  const [recall, sessionSnapshot] = await Promise.all([
+    recallContext({
+      userId: input.userId,
+      queryText: input.userMessage,
+      excludeConversationId: input.conversationId,
+      messagesLimit: 8,
+      factsLimit: 8,
+    }),
+    buildSessionSnapshot(input.userId),
+  ]);
 
   // 3) Сохраняем user-сообщение СРАЗУ — оно появится в истории даже если LLM упал.
   await saveUserMessage({
@@ -66,7 +74,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   // 4) Собираем messages для модели.
   const nowIso = new Date().toISOString();
   const messages: ChatMessageForApi[] = [
-    { role: "system", content: buildSystemPrompt(recall, nowIso) },
+    {
+      role: "system",
+      content: buildSystemPrompt(recall, nowIso, input.pageContext, sessionSnapshot),
+    },
     ...toApiMessages(prior),
     { role: "user", content: input.userMessage },
   ];
@@ -80,7 +91,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       tools,
       toolChoice: "auto",
       temperature: 0.3,
-      maxTokens: 2048,
+      maxTokens: 3072,
     });
 
     const step: AgentRunStep = {

@@ -11,7 +11,8 @@
  *   WORKOUT_IMPORT_USER_ID или NEXT_PUBLIC_WORKOUT_USER_ID — UUID из `users`. Если не задан —
  *     создаётся новая строка `users`, id печатается в консоль.
  *
- * Повторный запуск удаляет только строки с notes = метка импорта (ручные сохранения не трогает).
+ * Повторный запуск удаляет все тренировки этого user_id (и связанные gym_exercises / swim_series),
+ * затем записывает каталог из CSV заново.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -32,15 +33,15 @@ const root = join(__dirname, "..");
 const IMPORT_NOTE = "__seed:workout-catalog__";
 
 const GYM_FILES: Record<string, string> = {
-  pn: "тренировки.xlsx - пн (1).csv",
-  sr: "тренировки.xlsx - ср.csv",
-  pt: "тренировки.xlsx - пт.csv",
+  pn: "тренировки.xlsx - пн (2).csv",
+  sr: "тренировки.xlsx - ср (1).csv",
+  pt: "тренировки.xlsx - пт (1).csv",
 };
 
 const SWIM_FILES: Record<string, string> = {
-  vt: "тренировки.xlsx - вт.csv",
-  cht: "тренировки.xlsx - чт.csv",
-  sb: "тренировки.xlsx - сб.csv",
+  vt: "тренировки.xlsx - вт (1).csv",
+  cht: "тренировки.xlsx - чт (1).csv",
+  sb: "тренировки.xlsx - сб (1).csv",
 };
 
 function loadEnvFromDotenv() {
@@ -166,14 +167,10 @@ async function resolveUserId(): Promise<string> {
   return userId;
 }
 
-async function wipePreviousImports(uid: string) {
-  const { error } = await supabase
-    .from("workouts")
-    .delete()
-    .eq("user_id", uid)
-    .eq("notes", IMPORT_NOTE);
+async function wipeAllWorkoutsForUser(uid: string) {
+  const { error } = await supabase.from("workouts").delete().eq("user_id", uid);
   if (error) {
-    console.error("Не удалось очистить старый импорт:", error.message);
+    console.error("Не удалось удалить тренировки пользователя:", error.message);
     process.exit(1);
   }
 }
@@ -183,7 +180,8 @@ async function main() {
   console.log(`user_id: ${uid}`);
   console.log(`К импорту: силовых ${gymList.length}, плавание ${swimList.length}`);
 
-  await wipePreviousImports(uid);
+  await wipeAllWorkoutsForUser(uid);
+  console.log("Удалены все существующие тренировки для user_id (дочерние строки — каскадом).");
 
   for (const w of gymList) {
     const summaries = w.exercises.map((e) => ({ sets: e.sets }));

@@ -10,6 +10,9 @@ const BASE_SYSTEM = `\
 
 ОБЩИЕ ПРИНЦИПЫ:
 - Отвечай по-русски. Кратко и по делу. Без воды, без преамбул "конечно, я могу помочь".
+- Если передан блок «КОНТЕКСТ ЭКРАНА» — опирайся на него в первую очередь: отвечай привязано к тем цифрам,
+  полям и действиям, которые пользователь сейчас видит. Не давай общих советов, если можно сослаться
+  на конкретные данные из контекста или из тулов.
 - Прежде чем что-то посчитать или ответить про прошлое — используй тулы для получения реальных данных,
   не сочиняй цифры из головы. Если данных нет — так и скажи.
 - Любая запись/изменение/удаление в БД (save_*, update_*, delete_workout, save_profile, remember_fact, forget_fact)
@@ -32,6 +35,9 @@ const BASE_SYSTEM = `\
 - У тебя есть полный набор инструментов для чтения и записи всех данных приложения: профиль,
   тренировки (последние, в диапазоне, детали по id), периодная статистика и динамика упражнений,
   оценка калорий, прогрессия, долговременная память. Описания и кейсы — в спецификациях каждого тула.
+- **web_search** — только для актуальной общей информации из интернета (не заменяет данные приложения).
+  После поиска кратко перескажи вывод и при необходимости укажи источники (url из результатов).
+  Если инструмент вернул, что поиск не настроен — честно скажи пользователю.
 - Можно вызывать несколько тулов подряд, чтобы собрать ответ. Не вызывай тулы без необходимости.
 
 ТИПОВОЙ СЦЕНАРИЙ "СГЕНЕРИРУЙ ТРЕНИРОВКУ НА ЗАВТРА/ДАТУ":
@@ -45,8 +51,25 @@ const BASE_SYSTEM = `\
  6. Не сохраняй сам — всегда жди подтверждение.
 `;
 
-export function buildSystemPrompt(recall: RecallResult, nowIso: string): string {
+export function buildSystemPrompt(
+  recall: RecallResult,
+  nowIso: string,
+  pageContext?: string,
+  sessionSnapshot?: string
+): string {
   const parts: string[] = [BASE_SYSTEM, `\nТекущая дата/время (локальное): ${nowIso}.`];
+
+  if (sessionSnapshot && sessionSnapshot.trim().length > 0) {
+    parts.push(
+      `\nСНИМОК ПОЛЬЗОВАТЕЛЯ (профиль и активность из БД на старт запроса — опирайся при персонализации):\n${sessionSnapshot.trim()}`
+    );
+  }
+
+  if (pageContext && pageContext.trim().length > 0) {
+    parts.push(
+      `\nКОНТЕКСТ ЭКРАНА (то, что пользователь видит сейчас — используй для персонализации):\n${pageContext.trim()}`
+    );
+  }
 
   if (recall.facts.length > 0) {
     const lines = recall.facts.map(
@@ -57,8 +80,8 @@ export function buildSystemPrompt(recall: RecallResult, nowIso: string): string 
     );
   }
   if (recall.messages.length > 0) {
-    const lines = recall.messages.slice(0, 5).map((m) => {
-      const text = m.content.length > 280 ? m.content.slice(0, 280) + "…" : m.content;
+    const lines = recall.messages.slice(0, 8).map((m) => {
+      const text = m.content.length > 450 ? m.content.slice(0, 450) + "…" : m.content;
       return `- [${m.role} ${m.created_at.slice(0, 10)}] ${text}`;
     });
     parts.push(

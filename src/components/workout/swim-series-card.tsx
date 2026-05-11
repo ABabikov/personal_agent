@@ -3,6 +3,7 @@
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 export interface SwimSeriesInput {
   id: string;
@@ -75,23 +76,30 @@ export function SwimSeriesCard({
         </Button>
       </div>
 
-      {/* Description */}
+      {/* Description: textarea — длинные тексты от генератора не помещаются в однострочный input */}
       <div className="p-3">
-        <Input
+        <textarea
           placeholder="Стиль, интервалы, оборудование..."
           value={series.description}
           onChange={(e) => onDescriptionChange(e.target.value)}
-          className="border-0 bg-muted/30 focus-visible:ring-1"
+          rows={3}
+          className={cn(
+            "min-h-[4.5rem] w-full resize-y rounded-lg border-0 bg-muted/30 px-3 py-2 text-sm",
+            "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          )}
         />
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+          Быстрые фразы ниже — это не «теги серии»: при нажатии текст добавляется в описание (можно править вручную).
+        </p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {QUICK_HINTS.map((hint) => (
             <button
               key={hint}
               type="button"
               onClick={() => addHint(hint)}
-              className="rounded-md bg-swim/10 px-2 py-1 text-xs text-swim transition-colors hover:bg-swim/20"
+              className="rounded-md border border-swim/20 bg-swim/10 px-2 py-1 text-xs text-swim transition-colors hover:bg-swim/20"
             >
-              {hint}
+              + {hint}
             </button>
           ))}
         </div>

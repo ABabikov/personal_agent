@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Waves, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Waves, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,24 @@ import {
 } from "@/components/workout/swim-series-card";
 import { TotalCard } from "@/components/workout/total-card";
 import { totalDistance } from "@/lib/features/swimming/distance";
+import { generateSwimWorkoutPlan } from "@/lib/features/swimming/generatePlan";
+import { buildWorkoutFromCatalog } from "@/lib/features/swimming/catalogBuilder";
+import {
+  SWIM_GOALS,
+  formatGoalsLabel,
+  type SwimGoalCode,
+} from "@/lib/features/swimming/swimGoals";
+import { fetchSwimBlockTemplates } from "@/lib/db/fetchSwimBlockTemplates";
+import {
+  fetchSwimEquipment,
+  saveSwimEquipment,
+} from "@/lib/db/swimEquipmentProfile";
+import {
+  ALL_SWIM_EQUIPMENT_IDS,
+  SWIM_EQUIPMENT_ITEMS,
+  type SwimEquipmentId,
+} from "@/lib/features/swimming/swimEquipment";
+import { cn } from "@/lib/utils";
 import { swimWorkoutToSeriesInputs } from "@/lib/features/workouts/swimFormFromSeed";
 import type { ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
 import { saveSwimWorkoutToSupabase } from "@/lib/db/saveWorkout";
@@ -20,6 +38,8 @@ import {
   fetchLastSwimWorkoutFromDb,
   type LastSwimFromDb,
 } from "@/lib/db/fetchLastWorkoutTemplates";
+import { SwimMediumPlanCard } from "@/components/swim/swim-medium-plan-card";
+import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -36,9 +56,12 @@ function todayString() {
 function SwimWorkoutEditor({
   lastWorkout,
   onSaveSuccess,
+  planDraft,
 }: {
   lastWorkout: ParsedSwimWorkout | null;
   onSaveSuccess?: () => void;
+  /** Атомарно подставляет серии из планировщика (revision меняется каждый раз при генерации). */
+  planDraft?: { revision: number; rows: SwimSeriesInput[] } | null;
 }) {
   const [date, setDate] = useState(todayString);
   const [series, setSeries] = useState<SwimSeriesInput[]>(() =>
@@ -49,6 +72,11 @@ function SwimWorkoutEditor({
     "idle"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!planDraft?.rows?.length) return;
+    setSeries(planDraft.rows.map((s) => ({ ...s })));
+  }, [planDraft?.revision]);
 
   function applyLast() {
     if (!lastWorkout) return;
@@ -200,15 +228,40 @@ export default function SwimPage() {
   const [userError, setUserError] = useState<string | null>(null);
   const [lastFetchError, setLastFetchError] = useState<string | null>(null);
   const [lastTemplate, setLastTemplate] = useState<LastSwimFromDb | null>(null);
+  const [workoutUserId, setWorkoutUserId] = useState<string | null>(null);
+  const [statsRefreshKey, setStatsRefreshKey] = useState(0);
+
+  const [targetVolume, setTargetVolume] = useState("2500");
+  /** 1–2 фокуса: в каталоге подходят блоки, у которых в goal_tags есть хотя бы один из них */
+  const [selectedGoals, setSelectedGoals] = useState<SwimGoalCode[]>([
+    "mixed",
+  ]);
+  const [focusText, setFocusText] = useState("");
+  const [planGenerating, setPlanGenerating] = useState(false);
+  const [planDraft, setPlanDraft] = useState<{
+    revision: number;
+    rows: SwimSeriesInput[];
+  } | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<number | null>(null);
+
+  const [filterGear, setFilterGear] = useState(false);
+  const [inventory, setInventory] = useState<string[]>(() => [
+    ...ALL_SWIM_EQUIPMENT_IDS,
+  ]);
+  const [gearSaveState, setGearSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
 
   const refreshLast = useCallback(async () => {
     const user = await getWorkoutUserId();
     if ("error" in user) {
       setUserError(user.error);
+      setWorkoutUserId(null);
       setLastFetchError(null);
       setLastTemplate(null);
       return;
     }
+    setWorkoutUserId(user.userId);
     setUserError(null);
     const res = await fetchLastSwimWorkoutFromDb(user.userId);
     if ("error" in res) {
@@ -231,7 +284,114 @@ export default function SwimPage() {
     };
   }, [refreshLast]);
 
+  useEffect(() => {
+    if (!workoutUserId) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetchSwimEquipment(workoutUserId);
+      if (cancelled) return;
+      if ("error" in res) return;
+      if (res.data === null) {
+        setFilterGear(false);
+        setInventory([...ALL_SWIM_EQUIPMENT_IDS]);
+      } else {
+        setFilterGear(true);
+        setInventory(
+          res.data.length > 0 ? [...res.data] : [...ALL_SWIM_EQUIPMENT_IDS]
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workoutUserId]);
+
   const lastParsed = lastTemplate?.parsed ?? null;
+
+  const pageSummary = useMemo(() => {
+    const lines: string[] = [
+      "Раздел «Плавание»: запись тренировки по сериям, общий метраж, заметки.",
+      `Планировщик черновика: фокус «${formatGoalsLabel(selectedGoals)}», объём ${targetVolume.trim() || "—"} м${focusText.trim() ? `, уточнение «${focusText.trim()}»` : ""}. Снаряжение: ${filterGear ? `фильтр включён (${inventory.length} поз.)` : "фильтр выключен — все блоки каталога"}.`,
+    ];
+    if (lastParsed) {
+      lines.push(
+        `Последняя сохранённая тренировка: дата ${lastParsed.date}, метраж ${lastParsed.totalDistance != null ? `${lastParsed.totalDistance} м` : "не указан"}.`
+      );
+    } else {
+      lines.push("В базе ещё нет сохранённых тренировок по плаванию или не удалось загрузить.");
+    }
+    lines.push(
+      "Блок «Среднесрочный план»: локальные цели (м/нед и горизонт) и сравнение со средним за 4 недели."
+    );
+    return lines.join("\n");
+  }, [targetVolume, focusText, selectedGoals, filterGear, inventory.length, lastParsed]);
+
+  function toggleEquip(id: SwimEquipmentId) {
+    setInventory((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+    setGearSaveState("idle");
+  }
+
+  async function handleSaveGear() {
+    if (!workoutUserId) return;
+    setGearSaveState("saving");
+    const res = await saveSwimEquipment(
+      workoutUserId,
+      filterGear ? inventory : null
+    );
+    if ("error" in res) {
+      setGearSaveState("error");
+      return;
+    }
+    setGearSaveState("saved");
+    setTimeout(() => setGearSaveState("idle"), 2000);
+  }
+
+  function toggleGoal(code: SwimGoalCode) {
+    setSelectedGoals((prev) => {
+      if (prev.includes(code)) {
+        const next = prev.filter((c) => c !== code);
+        return next.length >= 1 ? next : prev;
+      }
+      if (prev.length < 2) return [...prev, code];
+      return [prev[0]!, code];
+    });
+  }
+
+  useRegisterPageChatContext("Плавание", pageSummary);
+
+  async function handleGeneratePlan() {
+    const parsed = parseInt(targetVolume, 10);
+    const vol =
+      Number.isFinite(parsed) && parsed >= 200 ? parsed : 2000;
+    const focus = focusText.trim()
+      ? `${formatGoalsLabel(selectedGoals)}: ${focusText.trim()}`
+      : `${formatGoalsLabel(selectedGoals)} — черновик из каталога`;
+    setPlanGenerating(true);
+    try {
+      const tpl = await fetchSwimBlockTemplates();
+      let plan =
+        "error" in tpl
+          ? null
+          : buildWorkoutFromCatalog(tpl.data, selectedGoals, vol, {
+              inventory: filterGear ? inventory : null,
+            });
+      if (!plan || plan.length === 0) {
+        plan = generateSwimWorkoutPlan(vol, focus);
+      }
+      const inputs: SwimSeriesInput[] = plan.map((s) => ({
+        id: newId(),
+        distance: String(s.distance),
+        description: s.description,
+      }));
+      const rev = Date.now();
+      setPlanDraft({ revision: rev, rows: inputs });
+      setGeneratedAt(rev);
+    } finally {
+      setPlanGenerating(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -258,6 +418,10 @@ export default function SwimPage() {
         </p>
       )}
 
+      {hydrated && !userError && (
+        <SwimMediumPlanCard userId={workoutUserId} refreshKey={statsRefreshKey} />
+      )}
+
       {hydrated && !userError && lastParsed && (
         <Card>
           <CardContent className="pt-4">
@@ -281,9 +445,197 @@ export default function SwimPage() {
       )}
 
       {hydrated && !userError && (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <div>
+              <h2 className="text-sm font-semibold">Планировщик черновика</h2>
+              <p className="text-xs text-muted-foreground">
+                Задайте целевой метраж и фокус — серии заполнятся в форме ниже (правки вручную всегда можно).
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="plan-volume">Целевой объём, м</Label>
+              <Input
+                id="plan-volume"
+                type="number"
+                min={200}
+                step={50}
+                className="mt-1 max-w-xs"
+                value={targetVolume}
+                onChange={(e) => setTargetVolume(e.target.value)}
+              />
+            </div>
+            <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">Снаряжение</p>
+                {workoutUserId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={gearSaveState === "saving"}
+                    onClick={() => void handleSaveGear()}
+                  >
+                    {gearSaveState === "saving"
+                      ? "Сохранение…"
+                      : gearSaveState === "saved"
+                        ? "Сохранено"
+                        : "Запомнить в профиле"}
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="filter-gear"
+                  checked={filterGear}
+                  onChange={(e) => {
+                    setFilterGear(e.target.checked);
+                    setGearSaveState("idle");
+                  }}
+                  className="mt-1 size-4 shrink-0 rounded border-input"
+                />
+                <Label
+                  htmlFor="filter-gear"
+                  className="text-xs font-normal leading-snug cursor-pointer text-muted-foreground"
+                >
+                  Учитывать инвентарь при сборке: в план попадают только блоки,
+                  для которых у вас отмечены все нужные предметы (в каталоге —
+                  поле <code className="text-foreground">equipment_tags</code>
+                  ). Выключено — доступны все блоки, как раньше.
+                </Label>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setInventory([...ALL_SWIM_EQUIPMENT_IDS]);
+                    setGearSaveState("idle");
+                  }}
+                >
+                  Отметить всё
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setInventory([]);
+                    setGearSaveState("idle");
+                  }}
+                >
+                  Снять всё
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {SWIM_EQUIPMENT_ITEMS.map((item) => (
+                  <label
+                    key={item.id}
+                    className="flex cursor-pointer items-center gap-2 text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={inventory.includes(item.id)}
+                      onChange={() => toggleEquip(item.id)}
+                      className="size-3.5 rounded border-input"
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                ))}
+              </div>
+              {gearSaveState === "error" && (
+                <p className="text-xs text-destructive" role="alert">
+                  Не удалось сохранить — проверьте миграцию и RLS для{" "}
+                  <code className="font-mono">users.swim_equipment</code>.
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-sm font-medium">Фокус (1–2)</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Можно сочетать, например техника + скорость. Блоки из базы
+                берутся, если их теги содержат{" "}
+                <span className="font-medium text-foreground">любой</span> из
+                выбранных фокусов. Доли разминки/заминки — среднее между
+                профилями фокусов.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {SWIM_GOALS.map((g) => (
+                  <button
+                    key={g.code}
+                    type="button"
+                    onClick={() => toggleGoal(g.code)}
+                    title={g.description}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                      selectedGoals.includes(g.code)
+                        ? "border-swim bg-swim/15 text-foreground"
+                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    {g.name}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Сейчас:{" "}
+                <span className="font-medium text-foreground">
+                  {formatGoalsLabel(selectedGoals)}
+                </span>
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="plan-focus">
+                Уточнение фокуса{" "}
+                <span className="font-normal text-muted-foreground">
+                  (необязательно)
+                </span>
+              </Label>
+              <Input
+                id="plan-focus"
+                className="mt-1"
+                placeholder="Например: работа ног, старт с бортика"
+                value={focusText}
+                onChange={(e) => setFocusText(e.target.value)}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-swim/40"
+              onClick={() => void handleGeneratePlan()}
+              disabled={planGenerating}
+            >
+              <Sparkles className="size-4 text-swim" />
+              <span>
+                {planGenerating
+                  ? "Сборка плана…"
+                  : "Сгенерировать серии"}
+              </span>
+            </Button>
+            {generatedAt != null && (
+              <p className="text-xs text-swim" role="status">
+                Черновик подставлен в форму ниже ({planDraft?.rows.length ?? 0}{" "}
+                блоков). Можно править текст и метраж по сериям.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {hydrated && !userError && (
         <SwimWorkoutEditor
           lastWorkout={lastParsed}
-          onSaveSuccess={() => void refreshLast()}
+          planDraft={planDraft}
+          onSaveSuccess={() => {
+            setStatsRefreshKey((k) => k + 1);
+            void refreshLast();
+          }}
         />
       )}
     </div>

@@ -20,6 +20,8 @@ export async function POST(req: Request) {
   const conversationId =
     typeof obj.conversationId === "string" ? obj.conversationId : "";
   const message = typeof obj.message === "string" ? obj.message : "";
+  const pageContext =
+    typeof obj.pageContext === "string" ? obj.pageContext.trim() : "";
 
   if (!userId || !conversationId || !message.trim()) {
     return NextResponse.json(
@@ -33,6 +35,7 @@ export async function POST(req: Request) {
       userId,
       conversationId,
       userMessage: message,
+      pageContext: pageContext || undefined,
     });
     return NextResponse.json(result);
   } catch (e) {

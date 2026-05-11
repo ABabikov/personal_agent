@@ -43,6 +43,7 @@ import {
   listFactsTool,
   forgetFactTool,
 } from "@/lib/agent/tools/memory";
+import { webSearchTool } from "@/lib/agent/tools/web_search";
 
 export const AGENT_TOOLS: AgentTool[] = [
   // профиль
@@ -78,6 +79,8 @@ export const AGENT_TOOLS: AgentTool[] = [
   rememberFactTool,
   listFactsTool,
   forgetFactTool,
+  // внешний контекст
+  webSearchTool,
 ];
 
 const TOOLS_BY_NAME = new Map(AGENT_TOOLS.map((t) => [t.name, t]));

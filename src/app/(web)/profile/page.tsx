@@ -21,6 +21,7 @@ import {
   type Gender,
   type ProfileForm,
 } from "@/lib/db/profile";
+import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 
 function toStr(v: number | null): string {
   return v == null ? "" : String(v);
@@ -34,6 +35,11 @@ function toNum(v: string): number | null {
 }
 
 export default function ProfilePage() {
+  useRegisterPageChatContext(
+    "Профиль",
+    "Антропометрия, пол, уровень активности — расчёт BMR/TDEE и учёт в приложении."
+  );
+
   const [userId, setUserId] = useState<string | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

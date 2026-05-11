@@ -37,6 +37,7 @@ const TABLE_NAMES = [
   "workouts",
   "gym_exercises",
   "swim_series",
+  "swim_block_template",
   "workout_plans",
   "chat_messages",
   "user_context",

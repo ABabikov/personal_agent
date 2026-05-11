@@ -13,6 +13,10 @@ export type PlanExercise = {
   last_weight: number;
 };
 
+export type SwimBlockPhase = "warmup" | "main" | "cooldown";
+
+export type SwimBlockSource = "own" | "curated" | "generator_seed";
+
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 export type ToolCallDescriptor = {
@@ -37,6 +41,8 @@ export interface Database {
           gender: "male" | "female" | null;
           activity_level: number | null;
           body_fat_pct: number | null;
+          /** Что есть из снаряжения; NULL = не использовать фильтр при сборке */
+          swim_equipment: string[] | null;
           created_at: string;
           updated_at: string;
         };
@@ -114,6 +120,77 @@ export interface Database {
             columns: ["workout_id"];
             isOneToOne: false;
             referencedRelation: "workouts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      swim_block_template: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          slug: string;
+          goal_tags: string[];
+          equipment_tags: string[];
+          phase: SwimBlockPhase;
+          nominal_distance_m: number;
+          min_m: number;
+          max_m: number;
+          scale_mode: string;
+          body_text: string;
+          source: SwimBlockSource;
+          source_note: string | null;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          {
+            id: string;
+            user_id: string | null;
+            slug: string;
+            goal_tags: string[];
+            equipment_tags?: string[];
+            phase: SwimBlockPhase;
+            nominal_distance_m: number;
+            min_m: number;
+            max_m: number;
+            scale_mode: string;
+            body_text: string;
+            source: SwimBlockSource;
+            source_note: string | null;
+            active: boolean;
+            created_at: string;
+            updated_at: string;
+          },
+          "id" | "created_at" | "updated_at"
+        > & {
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<{
+          id: string;
+          user_id: string | null;
+          slug: string;
+          goal_tags: string[];
+          equipment_tags: string[];
+          phase: SwimBlockPhase;
+          nominal_distance_m: number;
+          min_m: number;
+          max_m: number;
+          scale_mode: string;
+          body_text: string;
+          source: SwimBlockSource;
+          source_note: string | null;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "swim_block_template_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
             referencedColumns: ["id"];
           },
         ];

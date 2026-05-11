@@ -27,6 +27,7 @@ import {
   type LastGymFromDb,
 } from "@/lib/db/fetchLastWorkoutTemplates";
 import { loadUserProfile } from "@/lib/db/profile";
+import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -394,6 +395,11 @@ function GymWorkoutEditor({
 }
 
 export default function GymPage() {
+  useRegisterPageChatContext(
+    "Зал",
+    "Запись силовой тренировки: упражнения, подходы (вес × повторения), тоннаж и оценка калорий."
+  );
+
   const [hydrated, setHydrated] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
   const [lastFetchError, setLastFetchError] = useState<string | null>(null);
