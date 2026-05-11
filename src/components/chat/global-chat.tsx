@@ -193,6 +193,7 @@ export function GlobalChat() {
                 </Button>
                 <Link
                   href="/chat"
+                  prefetch={false}
                   className="text-xs text-muted-foreground underline-offset-2 hover:underline"
                   onClick={() => setOpen(false)}
                 >
