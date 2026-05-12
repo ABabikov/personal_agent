@@ -1,13 +1,11 @@
 /**
- * Ежедневный снимок данных Supabase → Google Таблица (по одной вкладке на таблицу БД).
- * Опционально — вторая таблица (дубль на другой аккаунт / регион).
+ * Снимок данных Supabase → одна Google Таблица (вкладка на таблицу БД).
  *
- * Запуск:
- *   npm run backup:sheets
- *   npm run backup:sheets -- --dry-run
+ * Какая база попадает в снимок — та, что в `NEXT_PUBLIC_SUPABASE_URL` (и ключ в env).
+ * Облачная и self-hosted реплика — это два разных URL: два отдельных запуска/cron с
+ * нужным `.env` (в ту же или в разные таблицы — на ваш выбор), без второй переменной Sheet ID.
  *
- * См. .env.example: GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID, GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID_2,
- * ключ сервисного аккаунта, SUPABASE_*.
+ * Запуск: npm run backup:sheets | npm run backup:sheets -- --dry-run
  */
 import {
   BACKUP_TABLE_NAMES,
@@ -62,18 +60,6 @@ async function main() {
   console.log(
     `Готово: ${primaryId} обновлена (${nowIso}). Вкладки: ${BACKUP_TABLE_NAMES.join(", ")}, backup_meta.`
   );
-
-  const secondaryRaw = process.env.GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID_2?.trim();
-  if (secondaryRaw) {
-    const sid2 = normalizeSpreadsheetId(secondaryRaw);
-    await writeBackupGridsToSpreadsheet(
-      sid2,
-      BACKUP_TABLE_NAMES,
-      grids,
-      metaGrid
-    );
-    console.log(`Вторая таблица обновлена: ${sid2}`);
-  }
 }
 
 main().catch((e) => {

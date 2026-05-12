@@ -1,5 +1,5 @@
 /**
- * Один проход чтения из Supabase → Google Sheet (и вторая), Excel, опционально зеркало в другой Supabase.
+ * Один проход чтения из Supabase → Google Sheet (одна таблица), Excel, опционально зеркало в другой Supabase.
  *
  *   npm run backup:all
  *   npm run backup:all -- --dry-run
@@ -55,23 +55,11 @@ async function main() {
       grids,
       metaGrid
     );
-    console.log(`Sheets (основная): ${id}`);
+    console.log(`Sheets: ${id}`);
   } else {
     console.warn(
       "GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID не задан — пропуск Google Sheets."
     );
-  }
-
-  const secondaryRaw = process.env.GOOGLE_SHEETS_BACKUP_SPREADSHEET_ID_2?.trim();
-  if (secondaryRaw) {
-    const id2 = normalizeSpreadsheetId(secondaryRaw);
-    await writeBackupGridsToSpreadsheet(
-      id2,
-      BACKUP_TABLE_NAMES,
-      grids,
-      metaGrid
-    );
-    console.log(`Sheets (вторая): ${id2}`);
   }
 
   const outDir =
