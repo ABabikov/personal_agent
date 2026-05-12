@@ -49,7 +49,7 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-lg safe-area-pb">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-glow-primary/20 bg-card/60 backdrop-blur-xl shadow-[0_-4px_30px] shadow-glow-primary/10 safe-area-pb">
       <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-2">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
@@ -61,15 +61,18 @@ export function BottomNav() {
               href={item.href}
               prefetch={false}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors",
+                "relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-all duration-300",
                 isActive
-                  ? "text-primary"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "text-primary drop-shadow-[0_0_8px_var(--glow-primary)]"
+                  : "text-muted-foreground hover:text-foreground hover:drop-shadow-[0_0_4px_var(--glow-primary)]"
               )}
             >
+              {isActive && (
+                <span className="absolute -top-0.5 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-primary shadow-[0_0_10px_2px_var(--glow-primary)]" />
+              )}
               <Icon
                 className={cn(
-                  "size-5 transition-transform",
+                  "size-5 transition-all duration-300",
                   isActive && "scale-110"
                 )}
                 strokeWidth={isActive ? 2.5 : 2}
