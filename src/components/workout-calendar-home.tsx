@@ -223,8 +223,8 @@ export function WorkoutCalendarHome() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <CalendarDays className="size-5" />
-          <h2 className="text-xl font-semibold">Спортивный календарь</h2>
+          <CalendarDays className="size-5 text-primary drop-shadow-[0_0_8px_var(--glow-primary)]" />
+          <h2 className="text-xl font-semibold text-glow-sm">Спортивный календарь</h2>
         </div>
         <Button
           type="button"
@@ -301,7 +301,7 @@ export function WorkoutCalendarHome() {
         <Card size="sm">
           <CardContent className="pt-3">
             <div className="flex items-baseline gap-1">
-              <Flame className="size-4 text-primary" />
+              <Flame className="size-4 text-primary drop-shadow-[0_0_8px_var(--glow-primary)] animate-pulse" />
               <p className="text-2xl font-bold tabular-nums">
                 {loading ? "…" : totals.totalCalories.toLocaleString("ru")}
               </p>
@@ -320,10 +320,11 @@ export function WorkoutCalendarHome() {
           href="/gym"
           className={cn(
             buttonVariants({ size: "lg", variant: "default" }),
-            "h-auto py-4 flex-col gap-1"
+            "h-auto py-4 flex-col gap-1 relative overflow-hidden group"
           )}
         >
-          <Dumbbell className="size-5" />
+          <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+          <Dumbbell className="size-5 drop-shadow-[0_0_6px_var(--glow-primary)]" />
           <span>Добавить</span>
           <span className="text-xs opacity-80 font-normal">силовую</span>
         </Link>
@@ -331,10 +332,11 @@ export function WorkoutCalendarHome() {
           href="/swim"
           className={cn(
             buttonVariants({ size: "lg", variant: "outline" }),
-            "h-auto py-4 flex-col gap-1"
+            "h-auto py-4 flex-col gap-1 relative overflow-hidden group"
           )}
         >
-          <Waves className="size-5" />
+          <span className="absolute inset-0 bg-gradient-to-r from-transparent via-glow-primary/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+          <Waves className="size-5 text-swim drop-shadow-[0_0_6px_var(--swim)]" />
           <span>Добавить</span>
           <span className="text-xs opacity-70 font-normal">плавание</span>
         </Link>

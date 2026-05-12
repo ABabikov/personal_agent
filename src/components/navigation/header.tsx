@@ -9,15 +9,15 @@ interface HeaderProps {
 
 export function Header({ title, showLogo = true }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-lg">
+    <header className="sticky top-0 z-40 border-b border-glow-primary/30 bg-background/40 backdrop-blur-xl shadow-[0_4px_30px_-5px] shadow-glow-primary/15">
       <div className="flex h-14 items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-3">
           {showLogo && (
             <div className="flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary shadow-lg shadow-glow-primary/30 ring-1 ring-glow-primary/50">
                 <Activity className="size-4 text-primary-foreground" />
               </div>
-              <span className="font-semibold tracking-tight">Jarvis</span>
+              <span className="font-semibold tracking-tight bg-gradient-to-r from-primary to-glow-secondary bg-clip-text text-transparent">Jarvis</span>
             </div>
           )}
           {title && !showLogo && (
