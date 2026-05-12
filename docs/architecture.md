@@ -18,7 +18,7 @@
 | Framework       | Next.js (App Router)          | Монолит фронт + бэк, нативный деплой на Vercel |
 | Language        | TypeScript                    | Один язык на весь проект                        |
 | UI              | React + Tailwind + shadcn/ui  | Быстрая разработка, адаптивность                |
-| TMA             | @telegram-apps/sdk            | Telegram Mini App как основной мобильный вход    |
+| TMA             | Telegram `WebApp` + скрипт tg.org/js            | Mini App в том же приложении; при необходимости позже `@telegram-apps/sdk` |
 | LLM             | OpenRouter (прямой fetch)     | Свой клиент с цепочкой фоллбеков (`anthropic/claude-sonnet-4` → gemini → deepseek → llama). Vercel AI SDK не нужен — лишний слой. |
 | Embeddings      | OpenRouter                    | `openai/text-embedding-3-large` (1536d) → `-3-small` фоллбек     |
 | DB              | Supabase (PostgreSQL + pgvector) | Реляционка + векторный поиск в одной базе    |
@@ -32,8 +32,7 @@
 personal_agent/
 ├── src/
 │   ├── app/                        # Next.js App Router
-│   │   ├── (web)/                  # Десктопные страницы (браузер)
-│   │   ├── (tma)/                  # Telegram Mini App страницы
+│   │   ├── (web)/                  # Основной UI (браузер + тот же бандл в TG WebView)
 │   │   ├── api/
 │   │   │   ├── chat/               # Эндпоинт агентского лупа
 │   │   │   ├── features/           # REST для детерминистских операций
@@ -173,29 +172,32 @@ workout_exercises
 3. Top-N релевантных записей добавляются в system prompt
 4. Агент отвечает с полным контекстом
 
-## Frontend: TMA + Web
+## Frontend: браузер + Telegram WebView
 
-Одно React-приложение, два layout через Next.js route groups:
+Одно React-приложение (`(web)/` и корневой layout). Для Telegram Mini App подключается официальный `telegram-web-app.js`, вызываются `ready` / `expand` (см. `TelegramWebAppRoot`, `src/lib/telegram/twa.ts`). Отдельная route group `(tma)/` при появлении отличающегося UI.
 
-- `(tma)/` — Telegram Mini App: инициализация через `@telegram-apps/sdk`, compact mobile UI
-- `(web)/` — браузер: стандартная навигация, Supabase Auth (на будущее для multi-user)
+## Deploy и клиенты
 
-Общие компоненты переиспользуются. Разница — layout, навигация, инициализация.
+Подробно: **[docs/deploy/README.md](./deploy/README.md)** — Docker-образ приложения, официальный self-hosted Supabase (отдельный compose, тома Postgres), Telegram Mini App, Android через Capacitor.
 
-## Infrastructure (MVP)
+Кратко:
+
+- **Vercel + Supabase Cloud** — основной режим без изменений.
+- **Docker** — `Dockerfile` + `docker-compose.yml` только для Next; URL/ключи Supabase задаются в `.env.docker`.
+- **Вторая реплика Postgres** — штатный [docker Supabase](https://github.com/supabase/supabase/tree/master/docker), не дублируется в этом репозитории.
+- **Android** — Capacitor WebView на прод-URL (`npm run mobile:add:android`, `CAPACITOR_SERVER_URL`, `npm run mobile:sync`).
+
+## Infrastructure
 
 ```
-Vercel
+Vercel (или Docker: Next standalone)
   ├── Next.js (SSR + API Routes)
-  └── Serverless Functions (agent loop, webhooks)
+  └── Serverless / контейнер (agent loop)
 
-Supabase (hosted)
+Supabase (Cloud и/или self-hosted)
   ├── PostgreSQL + pgvector
-  ├── Auth
-  └── Storage (S3)
+  └── Auth / Storage — по конфигурации проекта
 
 OpenRouter
   └── LLM API + Embeddings
 ```
-
-Далее: Docker + Supabase self-hosted при необходимости.

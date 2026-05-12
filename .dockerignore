@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+backups
+.env
+.env.docker
+android
+ios
+.DS_Store
+**/*.xlsx

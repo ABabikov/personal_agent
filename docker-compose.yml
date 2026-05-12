@@ -1,0 +1,21 @@
+# Только приложение Next.js. Supabase — облако или отдельный self-hosted стек (см. docs/deploy/supabase-self-hosted.md).
+# Сборка с подстановкой URL/ключей из файла:
+#   docker compose --env-file .env.docker up -d --build
+# Скопируй .env.docker.example → .env.docker
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_WORKOUT_USER_ID: ${NEXT_PUBLIC_WORKOUT_USER_ID:-}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    env_file:
+      - .env.docker
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped

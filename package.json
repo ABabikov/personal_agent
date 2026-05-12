@@ -18,10 +18,18 @@
     "backup:all": "tsx scripts/backup-supabase-all.ts",
     "backup:all:dry": "tsx scripts/backup-supabase-all.ts --dry-run",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "docker:up": "docker compose --env-file .env.docker up -d --build",
+    "docker:down": "docker compose down",
+    "mobile:sync": "npx cap sync",
+    "mobile:add:android": "npx cap add android",
+    "mobile:open:android": "npx cap open android"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
+    "@capacitor/android": "7.6.4",
+    "@capacitor/cli": "7.6.4",
+    "@capacitor/core": "7.6.4",
     "@supabase/supabase-js": "^2.103.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
