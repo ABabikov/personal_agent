@@ -41,3 +41,6 @@ next-env.d.ts
 
 # ad-hoc inspection scripts and notes
 /tmp/
+
+# локальные бэкапы (npm run backup:excel / backup:all)
+/backups/

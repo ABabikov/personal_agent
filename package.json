@@ -13,6 +13,10 @@
     "backfill:gym-calories:dry": "tsx scripts/backfill-gym-calories.ts --dry-run",
     "backup:sheets": "tsx scripts/backup-supabase-to-google-sheets.ts",
     "backup:sheets:dry": "tsx scripts/backup-supabase-to-google-sheets.ts --dry-run",
+    "backup:excel": "tsx scripts/backup-supabase-to-excel.ts",
+    "backup:excel:dry": "tsx scripts/backup-supabase-to-excel.ts --dry-run",
+    "backup:all": "tsx scripts/backup-supabase-all.ts",
+    "backup:all:dry": "tsx scripts/backup-supabase-all.ts --dry-run",
     "start": "next start",
     "lint": "eslint"
   },
