@@ -40,6 +40,7 @@ export function FuturisticBackground() {
     }
 
     function initParticles() {
+      if (!canvas) return;
       particles = [];
       const particleCount = Math.floor((canvas.width * canvas.height) / 15000);
       for (let i = 0; i < particleCount; i++) {
@@ -56,6 +57,7 @@ export function FuturisticBackground() {
     }
 
     function initGrid() {
+      if (!canvas) return;
       gridLines = [];
       const lineCount = Math.floor(canvas.height / 80);
       for (let i = 0; i < lineCount; i++) {
@@ -68,6 +70,7 @@ export function FuturisticBackground() {
     }
 
     function drawGrid() {
+      if (!canvas || !ctx) return;
       // Horizontal grid lines with glow
       gridLines.forEach((line) => {
         ctx.beginPath();
@@ -97,6 +100,7 @@ export function FuturisticBackground() {
     }
 
     function drawParticles() {
+      if (!canvas || !ctx) return;
       particles.forEach((p) => {
         // Draw glow
         const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
@@ -127,6 +131,7 @@ export function FuturisticBackground() {
     }
 
     function drawConnections() {
+      if (!ctx) return;
       const connectionDistance = 120;
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
@@ -148,6 +153,7 @@ export function FuturisticBackground() {
     }
 
     function drawCornerAccents() {
+      if (!canvas || !ctx) return;
       // Top-left corner accent
       const gradient1 = ctx.createRadialGradient(0, 0, 0, 0, 0, 300);
       gradient1.addColorStop(0, "hsla(195, 100%, 50%, 0.08)");
@@ -171,6 +177,7 @@ export function FuturisticBackground() {
     }
 
     function animate() {
+      if (!canvas || !ctx) return;
       // Clear with slight trail effect
       ctx.fillStyle = "hsla(280, 50%, 4%, 0.95)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
