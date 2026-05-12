@@ -9,7 +9,7 @@ interface HeaderProps {
 
 export function Header({ title, showLogo = true }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 border-b border-glow-primary/20 bg-card/60 backdrop-blur-xl shadow-lg shadow-glow-primary/5">
+    <header className="sticky top-0 z-40 border-b border-glow-primary/30 bg-background/40 backdrop-blur-xl shadow-[0_4px_30px_-5px] shadow-glow-primary/15">
       <div className="flex h-14 items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-3">
           {showLogo && (
