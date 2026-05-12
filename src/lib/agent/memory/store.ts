@@ -121,6 +121,95 @@ export async function loadConversation(
   return (data ?? []) as StoredMessage[];
 }
 
+/** Последний conversation_id пользователя по времени последнего сообщения. */
+export async function getLatestConversationIdForUser(
+  userId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .select("conversation_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    console.error("[agent.memory] getLatestConversationIdForUser failed:", error.message);
+    return null;
+  }
+  const row = data?.[0] as { conversation_id: string } | undefined;
+  return row?.conversation_id ?? null;
+}
+
+export type ConversationSummary = {
+  conversation_id: string;
+  last_message_at: string;
+  preview: string;
+};
+
+const CONVERSATION_LIST_SCAN = 400;
+
+/**
+ * Недавние диалоги по времени последнего сообщения (первое появление conv в ленте = самый свежий апдейт).
+ */
+export async function listRecentConversationsForUser(
+  userId: string,
+  maxConversations = 25
+): Promise<ConversationSummary[]> {
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .select("conversation_id, created_at, role, content")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(CONVERSATION_LIST_SCAN);
+  if (error) {
+    console.error("[agent.memory] listRecentConversationsForUser failed:", error.message);
+    return [];
+  }
+  const rows = (data ?? []) as {
+    conversation_id: string;
+    created_at: string;
+    role: string;
+    content: string;
+  }[];
+  const order: string[] = [];
+  const lastAt = new Map<string, string>();
+  for (const row of rows) {
+    if (!lastAt.has(row.conversation_id)) {
+      lastAt.set(row.conversation_id, row.created_at);
+      order.push(row.conversation_id);
+    }
+  }
+  const previewUser = new Map<string, string>();
+  for (const row of rows) {
+    if (row.role !== "user") continue;
+    const t = row.content.trim();
+    if (!t || previewUser.has(row.conversation_id)) continue;
+    previewUser.set(row.conversation_id, t.length > 100 ? `${t.slice(0, 100)}…` : t);
+  }
+  const out: ConversationSummary[] = [];
+  for (const id of order) {
+    if (out.length >= maxConversations) break;
+    const preview =
+      previewUser.get(id) ??
+      (() => {
+        const a = rows.find(
+          (r) =>
+            r.conversation_id === id &&
+            r.role === "assistant" &&
+            r.content.trim().length > 0
+        );
+        const t = a?.content.trim() ?? "";
+        if (!t) return "Без превью";
+        return t.length > 100 ? `${t.slice(0, 100)}…` : t;
+      })();
+    out.push({
+      conversation_id: id,
+      last_message_at: lastAt.get(id) ?? "",
+      preview,
+    });
+  }
+  return out;
+}
+
 export function toApiMessages(stored: StoredMessage[]): ChatMessageForApi[] {
   return stored.map((m) => {
     if (m.role === "assistant") {

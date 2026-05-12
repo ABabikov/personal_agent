@@ -14,6 +14,8 @@ import {
 } from "@/components/chat/chat-message-view";
 import { cn } from "@/lib/utils";
 import { buildPageContextPayload, CHAT_ROUTE_LABELS } from "@/lib/chat/pageContext";
+import { fetchChatHistoryFromApi } from "@/lib/chat/storedToBubbles";
+import { ChatConversationPicker } from "@/components/chat/chat-conversation-picker";
 
 const CONV_KEY = "personal_agent_chat_conversation_id";
 
@@ -39,7 +41,10 @@ export function GlobalChat() {
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const historyFetchGen = useRef(0);
 
   const pageContextPayload = useMemo(
     () => buildPageContextPayload(pathname, pageTitle, pageSummary),
@@ -47,13 +52,6 @@ export function GlobalChat() {
   );
 
   useEffect(() => {
-    let stored = window.localStorage.getItem(CONV_KEY);
-    if (!stored) {
-      stored = genUuid();
-      window.localStorage.setItem(CONV_KEY, stored);
-    }
-    setConversationId(stored);
-
     (async () => {
       const r = await getWorkoutUserId();
       if ("error" in r) setUserIdError(r.error);
@@ -62,14 +60,55 @@ export function GlobalChat() {
   }, []);
 
   useEffect(() => {
+    if (!userId) return;
+    const ls = window.localStorage.getItem(CONV_KEY)?.trim() || "";
+    const preferred = conversationId.trim() || ls || null;
+    const myGen = ++historyFetchGen.current;
+    let cancelled = false;
+    (async () => {
+      setHistoryLoading(true);
+      setHistoryError(null);
+      try {
+        const { conversationId: resolved, bubbles: loaded } = await fetchChatHistoryFromApi(
+          userId,
+          preferred
+        );
+        if (cancelled || myGen !== historyFetchGen.current) return;
+        if (resolved) {
+          window.localStorage.setItem(CONV_KEY, resolved);
+          setConversationId(resolved);
+          setBubbles(loaded);
+        } else {
+          window.localStorage.removeItem(CONV_KEY);
+          setConversationId("");
+          setBubbles([]);
+        }
+      } catch (e) {
+        if (cancelled || myGen !== historyFetchGen.current) return;
+        setHistoryError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled && myGen === historyFetchGen.current) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, conversationId]);
+
+  useEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
   }, [bubbles, open]);
 
   const canSend = useMemo(
-    () => !pending && userId && conversationId && input.trim().length > 0,
-    [pending, userId, conversationId, input]
+    () =>
+      !pending &&
+      !historyLoading &&
+      userId &&
+      conversationId &&
+      input.trim().length > 0,
+    [pending, historyLoading, userId, conversationId, input]
   );
 
   function newChat() {
@@ -77,6 +116,12 @@ export function GlobalChat() {
     window.localStorage.setItem(CONV_KEY, id);
     setConversationId(id);
     setBubbles([]);
+  }
+
+  function pickConversation(id: string) {
+    if (!id || id === conversationId) return;
+    window.localStorage.setItem(CONV_KEY, id);
+    setConversationId(id);
   }
 
   async function send() {
@@ -187,7 +232,14 @@ export function GlobalChat() {
                   Контекст: {pageTitle || (CHAT_ROUTE_LABELS[pathname] ?? pathname)}
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                <ChatConversationPicker
+                  userId={userId}
+                  activeConversationId={conversationId}
+                  onSelectConversation={pickConversation}
+                  disabled={pending}
+                  compact
+                />
                 <Button variant="outline" size="sm" onClick={newChat} disabled={pending}>
                   <Plus className="size-4" /> Новый
                 </Button>
@@ -208,12 +260,24 @@ export function GlobalChat() {
             {userIdError && (
               <p className="px-4 py-2 text-sm text-destructive">{userIdError}</p>
             )}
+            {historyError && (
+              <p className="px-4 py-2 text-sm text-destructive">{historyError}</p>
+            )}
 
             <div
               ref={scrollerRef}
               className="min-h-0 flex-1 overflow-y-auto px-3 py-3 space-y-3"
             >
-              {bubbles.length === 0 && (
+              {historyLoading && (
+                <div className="text-center text-xs text-muted-foreground">Загрузка истории…</div>
+              )}
+              {!historyLoading && bubbles.length === 0 && !conversationId && (
+                <div className="space-y-2 py-4 text-center text-sm text-muted-foreground">
+                  <p>Нет сохранённого диалога.</p>
+                  <p>Нажми «Новый», чтобы начать переписку.</p>
+                </div>
+              )}
+              {!historyLoading && bubbles.length === 0 && conversationId && (
                 <div className="space-y-3 py-4 text-center">
                   <p className="text-sm text-muted-foreground">
                     Спроси про то, что сейчас на экране — я вижу маршрут и описание страницы.
@@ -247,7 +311,7 @@ export function GlobalChat() {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}
                   placeholder="Вопрос про эту страницу или тренировки…"
-                  disabled={pending || !userId}
+                  disabled={pending || !userId || historyLoading || !conversationId}
                 />
                 <Button onClick={send} disabled={!canSend}>
                   <Send className="size-4" />

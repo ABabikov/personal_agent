@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, Send, Plus, Wrench, ChevronDown, ChevronRight } from "lucide-react";
+import { MessageSquare, Send, Plus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import { usePageChatContext, useRegisterPageChatContext } from "@/contexts/page-chat-context";
 import { buildPageContextPayload } from "@/lib/chat/pageContext";
+import { fetchChatHistoryFromApi } from "@/lib/chat/storedToBubbles";
+import { ChatConversationPicker } from "@/components/chat/chat-conversation-picker";
 import {
   ChatBubbleView,
   type AssistantStep,
@@ -35,7 +37,7 @@ export default function ChatPage() {
 
   useRegisterPageChatContext(
     "Чат с Jarvis",
-    "Полноэкранный режим переписки. Тот же conversation id в localStorage, что у плавающей кнопки чата."
+    "Полноэкранный чат: подгружается последний диалог из БД; новый id только по кнопке «Новый чат» (тот же ключ в localStorage, что у плавающей кнопки)."
   );
 
   const pageContextPayload = useMemo(
@@ -49,16 +51,12 @@ export default function ChatPage() {
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const historyFetchGen = useRef(0);
 
   useEffect(() => {
-    let stored = window.localStorage.getItem(CONV_KEY);
-    if (!stored) {
-      stored = genUuid();
-      window.localStorage.setItem(CONV_KEY, stored);
-    }
-    setConversationId(stored);
-
     (async () => {
       const r = await getWorkoutUserId();
       if ("error" in r) setUserIdError(r.error);
@@ -67,14 +65,55 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    if (!userId) return;
+    const ls = window.localStorage.getItem(CONV_KEY)?.trim() || "";
+    const preferred = conversationId.trim() || ls || null;
+    const myGen = ++historyFetchGen.current;
+    let cancelled = false;
+    (async () => {
+      setHistoryLoading(true);
+      setHistoryError(null);
+      try {
+        const { conversationId: resolved, bubbles: loaded } = await fetchChatHistoryFromApi(
+          userId,
+          preferred
+        );
+        if (cancelled || myGen !== historyFetchGen.current) return;
+        if (resolved) {
+          window.localStorage.setItem(CONV_KEY, resolved);
+          setConversationId(resolved);
+          setBubbles(loaded);
+        } else {
+          window.localStorage.removeItem(CONV_KEY);
+          setConversationId("");
+          setBubbles([]);
+        }
+      } catch (e) {
+        if (cancelled || myGen !== historyFetchGen.current) return;
+        setHistoryError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled && myGen === historyFetchGen.current) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, conversationId]);
+
+  useEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
   }, [bubbles]);
 
   const canSend = useMemo(
-    () => !pending && userId && conversationId && input.trim().length > 0,
-    [pending, userId, conversationId, input]
+    () =>
+      !pending &&
+      !historyLoading &&
+      userId &&
+      conversationId &&
+      input.trim().length > 0,
+    [pending, historyLoading, userId, conversationId, input]
   );
 
   function newChat() {
@@ -82,6 +121,12 @@ export default function ChatPage() {
     window.localStorage.setItem(CONV_KEY, id);
     setConversationId(id);
     setBubbles([]);
+  }
+
+  function pickConversation(id: string) {
+    if (!id || id === conversationId) return;
+    window.localStorage.setItem(CONV_KEY, id);
+    setConversationId(id);
   }
 
   async function send() {
@@ -146,16 +191,24 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="flex size-9 items-center justify-center rounded-lg bg-primary/15">
             <MessageSquare className="size-5 text-primary" />
           </div>
           <h1 className="text-lg font-semibold">Чат с Jarvis</h1>
         </div>
-        <Button variant="outline" size="sm" onClick={newChat} disabled={pending}>
-          <Plus className="size-4" /> Новый чат
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ChatConversationPicker
+            userId={userId}
+            activeConversationId={conversationId}
+            onSelectConversation={pickConversation}
+            disabled={pending}
+          />
+          <Button variant="outline" size="sm" onClick={newChat} disabled={pending}>
+            <Plus className="size-4" /> Новый чат
+          </Button>
+        </div>
       </div>
 
       {userIdError && (
@@ -165,12 +218,26 @@ export default function ChatPage() {
           </CardContent>
         </Card>
       )}
+      {historyError && (
+        <Card>
+          <CardContent className="py-3 text-sm text-destructive">{historyError}</CardContent>
+        </Card>
+      )}
 
       <div
         ref={scrollerRef}
         className="flex-1 overflow-y-auto rounded-lg border bg-card p-3 space-y-3"
       >
-        {bubbles.length === 0 && (
+        {historyLoading && (
+          <div className="text-center text-xs text-muted-foreground">Загрузка истории…</div>
+        )}
+        {!historyLoading && bubbles.length === 0 && !conversationId && (
+          <div className="space-y-2 py-6 text-center text-sm text-muted-foreground">
+            <p>Нет сохранённого диалога.</p>
+            <p>Нажми «Новый чат», чтобы начать.</p>
+          </div>
+        )}
+        {!historyLoading && bubbles.length === 0 && conversationId && (
           <div className="space-y-3 py-6 text-center">
             <p className="text-sm text-muted-foreground">
               Готов помочь с тренировками, прогрессом и питанием. Все данные приложения у меня под рукой.
@@ -205,7 +272,7 @@ export default function ChatPage() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKey}
           placeholder="Спроси про тренировки, прогресс, питание…"
-          disabled={pending || !userId}
+          disabled={pending || !userId || historyLoading || !conversationId}
         />
         <Button onClick={send} disabled={!canSend}>
           <Send className="size-4" /> Отправить
