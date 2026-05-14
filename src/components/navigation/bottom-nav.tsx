@@ -49,7 +49,7 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-glow-primary/30 bg-background/40 backdrop-blur-xl shadow-[0_-4px_30px_-5px] shadow-glow-primary/20 safe-area-pb">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/70 bg-background/95 shadow-[0_-8px_32px_-12px_rgba(0,0,0,0.35)] backdrop-blur-md supports-[backdrop-filter]:bg-background/90 safe-area-pb">
       <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-2">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;

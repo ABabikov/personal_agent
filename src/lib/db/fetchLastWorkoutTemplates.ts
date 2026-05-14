@@ -159,3 +159,74 @@ export async function fetchLastSwimWorkoutFromDb(
 
   return { data: { sourceWorkoutId: w.id, parsed } };
 }
+
+export type SwimHistoryListItem = {
+  workoutId: string;
+  parsed: ParsedSwimWorkout;
+};
+
+/**
+ * Последние плавания с сериями (для выбора из истории).
+ */
+export async function fetchSwimWorkoutsHistoryFromDb(
+  userId: string,
+  limit = 30
+): Promise<{ data: SwimHistoryListItem[] } | { error: string }> {
+  const { data: rows, error: wErr } = await supabase
+    .from("workouts")
+    .select("id, date, total_distance")
+    .eq("user_id", userId)
+    .eq("type", "swim")
+    .is("deleted_at", null)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (wErr) return { error: wErr.message };
+  const heads = rows ?? [];
+  if (heads.length === 0) return { data: [] };
+
+  const ids = heads.map((h) => h.id);
+  const { data: sRows, error: sErr } = await supabase
+    .from("swim_series")
+    .select("workout_id, distance, description, order_index")
+    .in("workout_id", ids)
+    .order("order_index", { ascending: true });
+
+  if (sErr) return { error: sErr.message };
+
+  const byWorkout = new Map<
+    string,
+    { distance: number; description: string }[]
+  >();
+  for (const r of sRows ?? []) {
+    const wid = r.workout_id as string;
+    const list = byWorkout.get(wid) ?? [];
+    list.push({
+      distance: r.distance as number,
+      description: r.description ?? "",
+    });
+    byWorkout.set(wid, list);
+  }
+
+  const out: SwimHistoryListItem[] = [];
+  for (const h of heads) {
+    const series = byWorkout.get(h.id);
+    if (!series?.length) continue;
+    const totalDistance =
+      h.total_distance != null
+        ? Number(h.total_distance)
+        : series.reduce((a, x) => a + x.distance, 0);
+    out.push({
+      workoutId: h.id,
+      parsed: {
+        date: h.date,
+        series,
+        totalDistance,
+        durationMinutes: null,
+      },
+    });
+  }
+
+  return { data: out };
+}

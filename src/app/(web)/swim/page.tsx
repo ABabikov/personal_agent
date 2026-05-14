@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Waves, RotateCcw, Sparkles } from "lucide-react";
+import { Plus, Waves, RotateCcw, Sparkles, History, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,14 @@ import { totalDistance } from "@/lib/features/swimming/distance";
 import { inferBreakdownForSeries } from "@/lib/features/swimming/inferBreakdown";
 import { generateSwimWorkoutPlan } from "@/lib/features/swimming/generatePlan";
 import { buildWorkoutFromCatalog } from "@/lib/features/swimming/catalogBuilder";
+import {
+  SWIM_GENERATION_COACH_PROMPT_BLOCK,
+  adjustTargetVolumeForBias,
+  formatMediumPlanForCoachNote,
+  suggestVolumeBias,
+} from "@/lib/features/swimming/swimGenerationMethodology";
+import { loadSwimMediumGoals } from "@/lib/features/swimming/swimMediumGoalsStorage";
+import { swimMetersRolling28Days } from "@/lib/features/swimming/swimRollingStats";
 import {
   SWIM_GOALS,
   formatGoalsLabel,
@@ -37,7 +45,9 @@ import { saveSwimWorkoutToSupabase } from "@/lib/db/saveWorkout";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import {
   fetchLastSwimWorkoutFromDb,
+  fetchSwimWorkoutsHistoryFromDb,
   type LastSwimFromDb,
+  type SwimHistoryListItem,
 } from "@/lib/db/fetchLastWorkoutTemplates";
 import { SwimMediumPlanCard } from "@/components/swim/swim-medium-plan-card";
 import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
@@ -64,11 +74,18 @@ function SwimWorkoutEditor({
   lastWorkout,
   onSaveSuccess,
   planDraft,
+  historyApply,
 }: {
   lastWorkout: ParsedSwimWorkout | null;
   onSaveSuccess?: () => void;
   /** Атомарно подставляет серии из планировщика (revision меняется каждый раз при генерации). */
   planDraft?: { revision: number; rows: SwimSeriesInput[] } | null;
+  /** Подстановка серий из истории; dateMode «today» — дата формы = сегодня. */
+  historyApply?: {
+    revision: number;
+    workout: ParsedSwimWorkout;
+    dateMode: "today" | "preserve";
+  } | null;
 }) {
   const [date, setDate] = useState(todayString);
   const [series, setSeries] = useState<SwimSeriesInput[]>(() =>
@@ -84,6 +101,17 @@ function SwimWorkoutEditor({
     if (!planDraft?.rows?.length) return;
     setSeries(planDraft.rows.map((s) => ({ ...s })));
   }, [planDraft?.revision]);
+
+  useEffect(() => {
+    if (!historyApply) return;
+    setSeries(swimWorkoutToSeriesInputs(historyApply.workout));
+    setDate(
+      historyApply.dateMode === "today"
+        ? todayString()
+        : historyApply.workout.date
+    );
+    setSaveError(null);
+  }, [historyApply?.revision]);
 
   function applyLast() {
     if (!lastWorkout) return;
@@ -287,6 +315,17 @@ export default function SwimPage() {
     "idle" | "saving" | "saved" | "error"
   >("idle");
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<SwimHistoryListItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const [historyApply, setHistoryApply] = useState<{
+    revision: number;
+    workout: ParsedSwimWorkout;
+    dateMode: "today" | "preserve";
+  } | null>(null);
+  const [generationMeta, setGenerationMeta] = useState<string | null>(null);
+
   const refreshLast = useCallback(async () => {
     const user = await getWorkoutUserId();
     if ("error" in user) {
@@ -307,6 +346,20 @@ export default function SwimPage() {
       setLastTemplate(res.data);
     }
   }, []);
+
+  const loadHistory = useCallback(async () => {
+    if (!workoutUserId) return;
+    setHistoryLoading(true);
+    setHistoryErr(null);
+    const res = await fetchSwimWorkoutsHistoryFromDb(workoutUserId, 40);
+    setHistoryLoading(false);
+    if ("error" in res) {
+      setHistoryErr(res.error);
+      setHistoryItems([]);
+      return;
+    }
+    setHistoryItems(res.data);
+  }, [workoutUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -356,7 +409,10 @@ export default function SwimPage() {
       lines.push("В базе ещё нет сохранённых тренировок по плаванию или не удалось загрузить.");
     }
     lines.push(
-      "Блок «Среднесрочный план»: локальные цели (м/нед и горизонт) и сравнение со средним за 4 недели."
+      "Блок «Среднесрочный план»: локальные цели (м/нед и горизонт) и сравнение со средним за 4 недели; при генерации черновика эти цели подмешиваются в разминку и слегка сдвигают целевой метраж."
+    );
+    lines.push(
+      "Можно открыть «Историю плавания» и подставить серии любой прошлой тренировки на сегодня или с исходной датой."
     );
     return lines.join("\n");
   }, [targetVolume, focusText, selectedGoals, filterGear, inventory.length, lastParsed]);
@@ -398,12 +454,33 @@ export default function SwimPage() {
 
   async function handleGeneratePlan() {
     const parsed = parseInt(targetVolume, 10);
-    const vol =
-      Number.isFinite(parsed) && parsed >= 200 ? parsed : 2000;
+    let vol = Number.isFinite(parsed) && parsed >= 200 ? parsed : 2000;
+    const requestedVol = vol;
     const focus = focusText.trim()
       ? `${formatGoalsLabel(selectedGoals)}: ${focusText.trim()}`
       : `${formatGoalsLabel(selectedGoals)} — черновик из каталога`;
+
+    const medium = loadSwimMediumGoals();
+    let avgWeeklyM: number | null = null;
+    if (workoutUserId) {
+      const st = await swimMetersRolling28Days(workoutUserId);
+      if ("data" in st) avgWeeklyM = st.data.avgWeeklyM;
+    }
+    const bias = suggestVolumeBias(medium.weeklyTargetM, avgWeeklyM);
+    vol = adjustTargetVolumeForBias(vol, bias);
+    const coachNote = formatMediumPlanForCoachNote(medium, avgWeeklyM);
+    const inventoryIds =
+      filterGear && inventory.length > 0 ? inventory : undefined;
+
+    const biasLabel =
+      bias === "neutral"
+        ? "объём без коррекции"
+        : bias === "add_base"
+          ? "+6% метража: текущий недельный темп ниже вашей цели"
+          : "−6% метража: текущий темп выше цели, бережём восстановление";
+
     setPlanGenerating(true);
+    setGenerationMeta(null);
     try {
       const tpl = await fetchSwimBlockTemplates();
       let plan =
@@ -411,9 +488,15 @@ export default function SwimPage() {
           ? null
           : buildWorkoutFromCatalog(tpl.data, selectedGoals, vol, {
               inventory: filterGear ? inventory : null,
+              prependWarmupNote: coachNote,
             });
+      let source: "catalog" | "heuristic" = "catalog";
       if (!plan || plan.length === 0) {
-        plan = generateSwimWorkoutPlan(vol, focus);
+        plan = generateSwimWorkoutPlan(vol, focus, {
+          mediumPlanCoachNote: coachNote,
+          inventoryIds,
+        });
+        source = "heuristic";
       }
       const inputs: SwimSeriesInput[] = plan.map((s) => {
         const inferred = inferBreakdownForSeries(s.distance, s.description);
@@ -428,6 +511,13 @@ export default function SwimPage() {
       const rev = Date.now();
       setPlanDraft({ revision: rev, rows: inputs });
       setGeneratedAt(rev);
+      setGenerationMeta(
+        [
+          `Источник: ${source === "catalog" ? "каталог блоков Supabase" : "встроенный генератор (каталог не собрал объём)"}.`,
+          `Поле «Целевой объём»: ${requestedVol} м → с учётом среднесрочного плана: ${vol} м (${biasLabel}).`,
+          coachNote,
+        ].join("\n\n")
+      );
     } finally {
       setPlanGenerating(false);
     }
@@ -462,6 +552,134 @@ export default function SwimPage() {
         <SwimMediumPlanCard userId={workoutUserId} refreshKey={statsRefreshKey} />
       )}
 
+      {hydrated && !userError && (
+        <Card className="border-border/80">
+          <CardContent className="space-y-2 pt-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 text-left"
+              onClick={() => {
+                setHistoryOpen((prev) => {
+                  const next = !prev;
+                  if (
+                    next &&
+                    workoutUserId &&
+                    historyItems.length === 0 &&
+                    !historyLoading
+                  ) {
+                    void loadHistory();
+                  }
+                  return next;
+                });
+              }}
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <History className="size-4 text-swim" />
+                История плавания
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {historyOpen ? "скрыть" : "показать"}
+              </span>
+            </button>
+            {historyOpen && (
+              <div className="space-y-2">
+                {historyErr && (
+                  <p className="text-xs text-destructive" role="alert">
+                    {historyErr}
+                  </p>
+                )}
+                {historyLoading && (
+                  <p className="text-xs text-muted-foreground">Загрузка…</p>
+                )}
+                {!historyLoading &&
+                  !historyErr &&
+                  historyItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Пока нет записей в журнале.
+                    </p>
+                  )}
+                {!historyLoading && historyItems.length > 0 && (
+                  <ul className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                    {historyItems.map((item) => (
+                      <li
+                        key={item.workoutId}
+                        className="rounded-lg border border-border/60 bg-muted/20 px-2 py-2 text-xs"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <span className="font-medium text-foreground">
+                              {new Date(
+                                item.parsed.date + "T12:00:00"
+                              ).toLocaleDateString("ru")}
+                            </span>
+                            {item.parsed.totalDistance != null && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                ·{" "}
+                                {item.parsed.totalDistance.toLocaleString("ru")}{" "}
+                                м
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 gap-1 text-[11px] px-2"
+                              onClick={() =>
+                                setHistoryApply({
+                                  revision: Date.now(),
+                                  workout: item.parsed,
+                                  dateMode: "today",
+                                })
+                              }
+                            >
+                              <CalendarClock className="size-3 shrink-0" />
+                              На сегодня
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[11px] px-2"
+                              onClick={() =>
+                                setHistoryApply({
+                                  revision: Date.now(),
+                                  workout: item.parsed,
+                                  dateMode: "preserve",
+                                })
+                              }
+                            >
+                              Как в журнале
+                            </Button>
+                          </div>
+                        </div>
+                        {item.parsed.series[0]?.description && (
+                          <p className="mt-1 line-clamp-2 text-muted-foreground">
+                            {item.parsed.series[0].description}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={historyLoading || !workoutUserId}
+                  onClick={() => void loadHistory()}
+                >
+                  Обновить список
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {hydrated && !userError && lastParsed && (
         <Card>
           <CardContent className="pt-4">
@@ -491,7 +709,17 @@ export default function SwimPage() {
               <h2 className="text-sm font-semibold">Планировщик черновика</h2>
               <p className="text-xs text-muted-foreground">
                 Задайте целевой метраж и фокус — серии заполнятся в форме ниже (правки вручную всегда можно).
+                Каталог из Supabase имеет приоритет; иначе включается генератор с расширенными примерами и учётом
+                среднесрочного плана и инвентаря.
               </p>
+              <details className="mt-2 rounded-lg border border-border/50 bg-muted/15 text-xs">
+                <summary className="cursor-pointer px-3 py-2 font-medium text-foreground">
+                  Методика для ИИ и ручной правки
+                </summary>
+                <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap border-t border-border/40 px-3 py-2 font-sans text-muted-foreground leading-relaxed">
+                  {SWIM_GENERATION_COACH_PROMPT_BLOCK}
+                </pre>
+              </details>
             </div>
             <div>
               <Label htmlFor="plan-volume">Целевой объём, м</Label>
@@ -664,6 +892,14 @@ export default function SwimPage() {
                 блоков). Можно править текст и метраж по сериям.
               </p>
             )}
+            {generationMeta != null && (
+              <div
+                className="rounded-lg border border-swim/25 bg-swim/[0.06] px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed"
+                role="note"
+              >
+                {generationMeta}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -672,9 +908,11 @@ export default function SwimPage() {
         <SwimWorkoutEditor
           lastWorkout={lastParsed}
           planDraft={planDraft}
+          historyApply={historyApply}
           onSaveSuccess={() => {
             setStatsRefreshKey((k) => k + 1);
             void refreshLast();
+            void loadHistory();
           }}
         />
       )}

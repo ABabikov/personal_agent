@@ -5,50 +5,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { fetchWorkoutsInDateRange } from "@/lib/db/listWorkouts";
+import {
+  DEFAULT_SWIM_MEDIUM_GOALS,
+  loadSwimMediumGoals,
+  persistSwimMediumGoals,
+  type SwimMediumGoals,
+} from "@/lib/features/swimming/swimMediumGoalsStorage";
+import { swimMetersRolling28Days } from "@/lib/features/swimming/swimRollingStats";
 
-const STORAGE_KEY = "personal_agent_swim_medium_goals_v1";
-
-export type SwimMediumGoals = {
-  weeklyTargetM: number;
-  horizonWeeks: number;
-  goalNote: string;
-};
-
-const DEFAULT_GOALS: SwimMediumGoals = {
-  weeklyTargetM: 4000,
-  horizonWeeks: 8,
-  goalNote: "",
-};
-
-function loadGoals(): SwimMediumGoals {
-  if (typeof window === "undefined") return DEFAULT_GOALS;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_GOALS;
-    const p = JSON.parse(raw) as Partial<SwimMediumGoals>;
-    return {
-      weeklyTargetM:
-        typeof p.weeklyTargetM === "number" && p.weeklyTargetM > 0
-          ? Math.round(p.weeklyTargetM)
-          : DEFAULT_GOALS.weeklyTargetM,
-      horizonWeeks:
-        typeof p.horizonWeeks === "number" && p.horizonWeeks >= 1
-          ? Math.min(52, Math.round(p.horizonWeeks))
-          : DEFAULT_GOALS.horizonWeeks,
-      goalNote: typeof p.goalNote === "string" ? p.goalNote : "",
-    };
-  } catch {
-    return DEFAULT_GOALS;
-  }
-}
-
-function isoDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+export type { SwimMediumGoals };
 
 export function SwimMediumPlanCard({
   userId,
@@ -58,44 +23,34 @@ export function SwimMediumPlanCard({
   /** Инкремент после сохранения тренировки на странице плавания. */
   refreshKey: number;
 }) {
-  const [goals, setGoals] = useState<SwimMediumGoals>(DEFAULT_GOALS);
+  const [goals, setGoals] = useState<SwimMediumGoals>(DEFAULT_SWIM_MEDIUM_GOALS);
   const [hydrated, setHydrated] = useState(false);
   const [avgWeeklyM, setAvgWeeklyM] = useState<number | null>(null);
   const [periodTotalM, setPeriodTotalM] = useState<number | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   useEffect(() => {
-    setGoals(loadGoals());
+    setGoals(loadSwimMediumGoals());
     setHydrated(true);
   }, []);
 
   const persist = useCallback((g: SwimMediumGoals) => {
     setGoals(g);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(g));
+    persistSwimMediumGoals(g);
   }, []);
 
   const loadStats = useCallback(async () => {
     if (!userId) return;
     setLoadErr(null);
-    const end = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const endStr = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
-    const startStr = isoDaysAgo(27);
-    const res = await fetchWorkoutsInDateRange(userId, startStr, endStr);
+    const res = await swimMetersRolling28Days(userId);
     if ("error" in res) {
       setLoadErr(res.error);
       setAvgWeeklyM(null);
       setPeriodTotalM(null);
       return;
     }
-    let swimM = 0;
-    for (const w of res.data) {
-      if (w.type === "swim" && w.total_distance != null) {
-        swimM += w.total_distance;
-      }
-    }
-    setPeriodTotalM(swimM);
-    setAvgWeeklyM(Math.round(swimM / 4));
+    setPeriodTotalM(res.data.totalM);
+    setAvgWeeklyM(res.data.avgWeeklyM);
   }, [userId]);
 
   useEffect(() => {

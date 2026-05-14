@@ -113,6 +113,8 @@ function fillPhase(
 export type BuildCatalogOptions = {
   /** Если не передано или `inventory === null` — не фильтровать по снаряжению */
   inventory?: string[] | null;
+  /** Врезка в первый блок разминки из каталога (среднесрочный план и т.п.) */
+  prependWarmupNote?: string;
 };
 
 export function buildWorkoutFromCatalog(
@@ -148,6 +150,14 @@ export function buildWorkoutFromCatalog(
   if (c === null) return null;
 
   const out = [...w, ...m, ...c];
+  const note = options?.prependWarmupNote?.trim();
+  if (note && out.length > 0) {
+    const first = out[0]!;
+    out[0] = {
+      ...first,
+      description: `Связка с планом: ${note}\n\n${first.description}`,
+    };
+  }
   let sum = out.reduce((s, x) => s + x.distance, 0);
   const delta = total - sum;
   if (delta !== 0 && out.length > 0) {

@@ -13,7 +13,7 @@ export function WebShell({ children }: { children: ReactNode }) {
       <FuturisticBackground />
       <div className="flex min-h-dvh flex-col bg-transparent relative z-0">
         <Header />
-        <main className="flex-1 px-4 pb-20 pt-4">
+        <main className="flex-1 px-4 pb-28 pt-4">
           <div className="mx-auto max-w-lg">{children}</div>
         </main>
         <BottomNav />
