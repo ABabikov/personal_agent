@@ -21,13 +21,26 @@ function enrichPlan(payload: MealPlanAgentPayload) {
   };
 }
 
+function recipeDiscoverySummary(payload: MealPlanAgentPayload) {
+  const rd = payload.recipeDiscovery;
+  const enabled = rd.sources.filter((s) => s.enabled);
+  return {
+    sourceCount: rd.sources.length,
+    enabledHosts: enabled.map((s) => s.host),
+    preferencesNotesPreview: rd.preferences.notes.slice(0, 400),
+    novelty: rd.preferences.novelty,
+    excludeRecent: rd.preferences.excludeRecent,
+    historyRecentCount: rd.historyRecent.length,
+  };
+}
+
 export const getMealPlanStateTool: AgentTool = {
   name: "get_meal_plan_state",
   description: [
-    "Раздел «Питание»: текущие цели КБЖУ на день, настраиваемые слоты приёмов, коридор дефицита ккал,",
-    "текст базовых продуктов дома, план порций по рецептам из встроенного каталога, сводка ккал/БЖУ по плану.",
+    "Раздел «Питание»: цели КБЖУ, слоты приёмов, коридор дефицита ккал, база продуктов дома, план порций по встроенному каталогу,",
+    "плюс recipeDiscovery: список сайтов-источников рецептов (hostname), предпочтения поиска и хвост истории URL (чтобы реже повторяться).",
     "Работает только если в запросе чата передан снимок mealPlan (клиент шлёт автоматически).",
-    "Кейсы: «что у меня в плане питания», «сколько ккал в текущем плане», «какие слоты приёмов».",
+    "Кейсы: план, цели, источники рецептов, что недавно смотрели, подсказать запрос для поиска рецептов под предпочтения.",
   ].join(" "),
   parameters: {
     type: "object",
@@ -46,6 +59,8 @@ export const getMealPlanStateTool: AgentTool = {
       ok: true,
       data: {
         ...enrichPlan(ctx.mealPlanClient),
+        recipeDiscovery: recipeDiscoverySummary(ctx.mealPlanClient),
+        recipeDiscoveryHistoryRecent: ctx.mealPlanClient.recipeDiscovery.historyRecent,
         knownRecipeIds: RECIPE_IDS,
       },
     };
@@ -55,10 +70,12 @@ export const getMealPlanStateTool: AgentTool = {
 export const setMealPlanStateTool: AgentTool = {
   name: "set_meal_plan_state",
   description: [
-    "Обновить настройки питания и/или план порций: частично передать targets, staples, plan — слияние с текущим снимком mealPlan.",
+    "Обновить настройки питания и/или план порций: частично передать targets, staples, plan, recipeDiscovery — слияние с текущим снимком mealPlan.",
     "После успешного вызова клиент запишет результат в localStorage (пользователь увидит изменения на /meal-plan).",
     "targets: объект с полями kcal, proteinG, fatG, carbsG, deficitKcalMin, deficitKcalMax, mealSlots [{id, label}].",
     "Можно менять только часть полей — остальное сохранится из снимка.",
+    "recipeDiscovery: только { sources?, preferences? }; каждый source { id, label, host, enabled }; host без протокола и пути;",
+    "историю поиска на клиенте тул не перезаписывает.",
     "plan: массив { recipeId, portions }; recipeId только из knownRecipeIds из get_meal_plan_state.",
     "Правило продукта: любая запись в БД тренировок/финансов — только после явного «да» пользователя;",
     "для питания тоже сначала кратко покажи, что изменится, затем вызывай этот тул после согласия.",
@@ -87,6 +104,19 @@ export const setMealPlanStateTool: AgentTool = {
           required: ["recipeId", "portions"],
         },
       },
+      recipeDiscovery: {
+        type: "object",
+        description: "Частичное обновление источников рецептов и предпочтений поиска.",
+        additionalProperties: true,
+        properties: {
+          sources: { type: "array", description: "Полный или частичный список { id, label, host, enabled }" },
+          preferences: {
+            type: "object",
+            description: "notes (строка), novelty (0–1), excludeRecent (число)",
+            additionalProperties: true,
+          },
+        },
+      },
     },
     additionalProperties: false,
   },
@@ -101,12 +131,22 @@ export const setMealPlanStateTool: AgentTool = {
       targets?: unknown;
       staples?: unknown;
       plan?: unknown;
+      recipeDiscovery?: unknown;
     } = {};
     if (args.targets !== undefined) patch.targets = args.targets;
     if (args.staples !== undefined) patch.staples = args.staples;
     if (args.plan !== undefined) patch.plan = args.plan;
-    if (patch.targets === undefined && patch.staples === undefined && patch.plan === undefined) {
-      return { ok: false, error: "Укажи хотя бы одно из полей: targets, staples, plan." };
+    if (args.recipeDiscovery !== undefined) patch.recipeDiscovery = args.recipeDiscovery;
+    if (
+      patch.targets === undefined &&
+      patch.staples === undefined &&
+      patch.plan === undefined &&
+      patch.recipeDiscovery === undefined
+    ) {
+      return {
+        ok: false,
+        error: "Укажи хотя бы одно из полей: targets, staples, plan, recipeDiscovery.",
+      };
     }
     const merged = mergeMealPlanPayload(ctx.mealPlanClient, patch);
     if (!merged.ok) return { ok: false, error: merged.error };

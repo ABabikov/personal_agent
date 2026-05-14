@@ -5,11 +5,18 @@
 import type { MealPlanTargets, PlanLine, MealSlot } from "./types";
 import { DEFAULT_TARGETS } from "./types";
 import { recipeById } from "./seedRecipes";
+import type { RecipeDiscoveryForAgent } from "./recipeDiscoveryTypes";
+import {
+  mergeAgentDiscoveryPatch,
+  parseRecipeDiscoveryForAgentPayload,
+} from "./recipeDiscoveryStorage";
 
 export type MealPlanAgentPayload = {
   targets: MealPlanTargets;
   staples: string;
   plan: PlanLine[];
+  /** Источники рецептов в сети, предпочтения и хвост истории (анти-повторы). */
+  recipeDiscovery: RecipeDiscoveryForAgent;
   summary: {
     planTotalsKcal: number;
     planTotalsProteinG: number;
@@ -129,13 +136,15 @@ export function planTotalsFromLines(plan: PlanLine[]): {
 export function buildMealPlanPayload(
   targets: MealPlanTargets,
   staples: string,
-  plan: PlanLine[]
+  plan: PlanLine[],
+  recipeDiscovery: RecipeDiscoveryForAgent
 ): MealPlanAgentPayload {
   const t = planTotalsFromLines(plan);
   return {
     targets,
     staples: staples.slice(0, 12000),
     plan,
+    recipeDiscovery,
     summary: {
       planTotalsKcal: t.kcal,
       planTotalsProteinG: t.proteinG,
@@ -154,6 +163,7 @@ export function mergeMealPlanPayload(
     targets?: unknown;
     staples?: unknown;
     plan?: unknown;
+    recipeDiscovery?: unknown;
   }
 ): { ok: true; merged: MealPlanAgentPayload } | { ok: false; error: string } {
   let targets = base.targets;
@@ -176,7 +186,19 @@ export function mergeMealPlanPayload(
     plan = p;
   }
 
-  return { ok: true, merged: buildMealPlanPayload(targets, staples, plan) };
+  let recipeDiscovery = base.recipeDiscovery;
+  if (patch.recipeDiscovery !== undefined) {
+    if (!patch.recipeDiscovery || typeof patch.recipeDiscovery !== "object") {
+      return { ok: false, error: "recipeDiscovery должен быть объектом с опциональными sources и preferences." };
+    }
+    const rd = patch.recipeDiscovery as Record<string, unknown>;
+    recipeDiscovery = mergeAgentDiscoveryPatch(base.recipeDiscovery, {
+      sources: rd.sources,
+      preferences: rd.preferences,
+    });
+  }
+
+  return { ok: true, merged: buildMealPlanPayload(targets, staples, plan, recipeDiscovery) };
 }
 
 /** Разбор JSON из тела POST /api/chat (поле mealPlan). */
@@ -190,5 +212,6 @@ export function safeParseClientMealPlanPayload(raw: unknown): MealPlanAgentPaylo
   if (!o.targets || typeof o.targets !== "object") return null;
   const t = mergeTargetsPartial(DEFAULT_TARGETS, o.targets);
   if (!t) return null;
-  return buildMealPlanPayload(t, o.staples, plan);
+  const recipeDiscovery = parseRecipeDiscoveryForAgentPayload(o.recipeDiscovery);
+  return buildMealPlanPayload(t, o.staples, plan, recipeDiscovery);
 }

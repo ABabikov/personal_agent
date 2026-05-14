@@ -1,5 +1,13 @@
 import type { Recipe } from "./types";
 
+/**
+ * Иллюстративные превью с Wikimedia Commons (типичный размер 330px).
+ * Лицензии см. на странице каждого файла; картинка не обязана совпадать с вашей порцией 1:1.
+ */
+function commonsThumb330(pathUnderThumb: string): string {
+  return `https://upload.wikimedia.org/wikipedia/commons/thumb/${pathUnderThumb}`;
+}
+
 /** Стартовый каталог для прототипа — можно позже вынести в БД или импорт JSON. */
 export const SEED_RECIPES: Recipe[] = [
   {
@@ -7,6 +15,9 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Куриная грудка с булгуром и запечёнными овощами",
     teaser: "Копчёная паприка у овощей, лимон к курице — не скучнее обычной грудки.",
     minutes: 45,
+    imageUrl: commonsThumb330(
+      "6/6d/Good_Food_Display_-_NCI_Visuals_Online.jpg/330px-Good_Food_Display_-_NCI_Visuals_Online.jpg"
+    ),
     macrosPerServing: { kcal: 485, proteinG: 48, fatG: 12, carbsG: 48 },
     ingredients: [
       { name: "Куриная грудка", amount: 200, unit: "г" },
@@ -25,6 +36,7 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Говядина тушёная с гречкой и морковью",
     teaser: "Томат + лавровый — глубже вкус, чем «просто мясо с крупой».",
     minutes: 90,
+    imageUrl: commonsThumb330("6/6f/Kasha.jpg/330px-Kasha.jpg"),
     macrosPerServing: { kcal: 520, proteinG: 42, fatG: 18, carbsG: 52 },
     ingredients: [
       { name: "Говядина для тушения", amount: 180, unit: "г" },
@@ -42,6 +54,7 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Пышный омлет с овощами и тёртым сыром",
     teaser: "Запекание в духовке — меньше масла, больше объёма.",
     minutes: 25,
+    imageUrl: commonsThumb330("5/55/Omelette.jpg/330px-Omelette.jpg"),
     macrosPerServing: { kcal: 380, proteinG: 28, fatG: 24, carbsG: 14 },
     ingredients: [
       { name: "Яйца куриные", amount: 3, unit: "шт" },
@@ -58,6 +71,7 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Треска на пару с брокколи и бурым рисом",
     teaser: "Имбирь и соевый соус — азиатский акцент без лишних калорий.",
     minutes: 35,
+    imageUrl: commonsThumb330("8/8a/Grilled_salmon.jpg/330px-Grilled_salmon.jpg"),
     macrosPerServing: { kcal: 430, proteinG: 38, fatG: 8, carbsG: 52 },
     ingredients: [
       { name: "Филе трески (или хека)", amount: 200, unit: "г" },
@@ -74,6 +88,7 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Творожная запеканка с ягодами",
     teaser: "Ваниль и цедра — десертный профиль без сахарной лавины.",
     minutes: 50,
+    imageUrl: commonsThumb330("3/3f/Fromage_blanc.jpg/330px-Fromage_blanc.jpg"),
     macrosPerServing: { kcal: 340, proteinG: 32, fatG: 12, carbsG: 28 },
     ingredients: [
       { name: "Творог 5%", amount: 200, unit: "г" },
@@ -89,6 +104,7 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Крем-суп из красной чечевицы с кокосом",
     teaser: "Карри и кокосовое молоко — насыщенно, как в кафе.",
     minutes: 40,
+    imageUrl: commonsThumb330("3/37/Lentil_soup.jpg/330px-Lentil_soup.jpg"),
     macrosPerServing: { kcal: 395, proteinG: 18, fatG: 14, carbsG: 48 },
     ingredients: [
       { name: "Чечевица красная сухая", amount: 90, unit: "г" },
@@ -105,6 +121,7 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Паста из твёрдых сортов с фаршем индейки",
     teaser: "Базилик свежий + пармезан в конце — «ресторанный» финал.",
     minutes: 35,
+    imageUrl: commonsThumb330("5/51/Tagliatelle_al_rag%C3%B9.jpg/330px-Tagliatelle_al_rag%C3%B9.jpg"),
     macrosPerServing: { kcal: 560, proteinG: 44, fatG: 16, carbsG: 68 },
     ingredients: [
       { name: "Паста цельнозерновая сухая", amount: 80, unit: "г" },
@@ -122,6 +139,9 @@ export const SEED_RECIPES: Recipe[] = [
     name: "Поке-миска с тунцом, авокадо и киноа",
     teaser: "Сезам и огурец — хруст и умами без жарки.",
     minutes: 25,
+    imageUrl: commonsThumb330(
+      "e/e5/Tuna_poke_at_Cafe_La_Haye_-_Sarah_Stierch.jpg/330px-Tuna_poke_at_Cafe_La_Haye_-_Sarah_Stierch.jpg"
+    ),
     macrosPerServing: { kcal: 510, proteinG: 36, fatG: 22, carbsG: 48 },
     ingredients: [
       { name: "Тунец консервированный в собственном соку", amount: 150, unit: "г" },
@@ -132,6 +152,136 @@ export const SEED_RECIPES: Recipe[] = [
       { name: "Соевый соус", amount: 12, unit: "мл" },
       { name: "Масло кунжутное", amount: 5, unit: "мл" },
       { name: "Кунжут", amount: 5, unit: "г" },
+    ],
+  },
+  {
+    id: "turkey-larb-toasted-rice",
+    name: "Тайский лааб из индейки с жареным рисовым порошком",
+    teaser: "Рыбный соус, мята, лайм и хрустящий кхао кхуа — уличный Исан, не «фитнес-фарш».",
+    minutes: 35,
+    imageUrl: commonsThumb330(
+      "3/39/Phat_Thai_kung_Chang_Khien_street_stall.jpg/330px-Phat_Thai_kung_Chang_Khien_street_stall.jpg"
+    ),
+    macrosPerServing: { kcal: 418, proteinG: 41, fatG: 14, carbsG: 36 },
+    ingredients: [
+      { name: "Фарш индейки", amount: 180, unit: "г" },
+      { name: "Рис жасмин сухой", amount: 45, unit: "г" },
+      { name: "Шалот или лук репчатый", amount: 50, unit: "г" },
+      { name: "Чеснок", amount: 2, unit: "зубч." },
+      { name: "Рыбный соус", amount: 12, unit: "мл" },
+      { name: "Лайм", amount: 1, unit: "шт" },
+      { name: "Мята свежая", amount: 8, unit: "г" },
+      { name: "Кинза", amount: 10, unit: "г" },
+      { name: "Хлопья чили сухие", amount: 0.5, unit: "ч.л." },
+    ],
+  },
+  {
+    id: "cabbage-okonomiyaki-shrimp",
+    name: "Окономияки-стайл: капустный блин с креветками",
+    teaser: "Много капусты, мало теста; соус на основе кетчупа + вустера + капли майонеза — ярко и не по-европейски.",
+    minutes: 40,
+    imageUrl: commonsThumb330(
+      "8/87/A_man_prepares_okonomiyaki_in_Hiroshima_2004-08-05.jpg/330px-A_man_prepares_okonomiyaki_in_Hiroshima_2004-08-05.jpg"
+    ),
+    macrosPerServing: { kcal: 372, proteinG: 29, fatG: 13, carbsG: 38 },
+    ingredients: [
+      { name: "Капуста белокочанная", amount: 220, unit: "г" },
+      { name: "Креветки очищенные", amount: 100, unit: "г" },
+      { name: "Яйца куриные", amount: 2, unit: "шт" },
+      { name: "Мука пшеничная", amount: 35, unit: "г" },
+      { name: "Имбирь маринованный", amount: 15, unit: "г" },
+      { name: "Зелёный лук", amount: 20, unit: "г" },
+      { name: "Кетчуп и вустерский соус", amount: 25, unit: "г" },
+      { name: "Майонез лёгкий", amount: 10, unit: "г" },
+    ],
+  },
+  {
+    id: "chicken-fesenjan-light",
+    name: "Курица в персидском мотиве: орехи, гранат, без сахарной бомбы",
+    teaser: "Густой соус из молотых грецких орехов и гранатового сока — как фесенджан, но порция под контролем.",
+    minutes: 75,
+    imageUrl: commonsThumb330("b/bc/Walnut_sauce.jpg/330px-Walnut_sauce.jpg"),
+    macrosPerServing: { kcal: 548, proteinG: 40, fatG: 26, carbsG: 44 },
+    ingredients: [
+      { name: "Куриные бёдра без кости", amount: 200, unit: "г" },
+      { name: "Грецкий орех", amount: 55, unit: "г" },
+      { name: "Гранатовый сок натуральный", amount: 120, unit: "мл" },
+      { name: "Лук репчатый", amount: 80, unit: "г" },
+      { name: "Рис басмати сухой", amount: 55, unit: "г" },
+      { name: "Корица молотая", amount: 0.25, unit: "ч.л." },
+      { name: "Оливковое масло", amount: 10, unit: "мл" },
+    ],
+  },
+  {
+    id: "misir-wat-berbere-yogurt",
+    name: "Эфиопский мисир-ват из красной чечевицы с йогуртом",
+    teaser: "Смесь бербере, томаты, долгое томление — острый слой, йогурт сверху охлаждает.",
+    minutes: 50,
+    imageUrl: commonsThumb330("5/54/Ethiopian_wat.jpg/330px-Ethiopian_wat.jpg"),
+    macrosPerServing: { kcal: 402, proteinG: 21, fatG: 11, carbsG: 58 },
+    ingredients: [
+      { name: "Чечевица красная сухая", amount: 85, unit: "г" },
+      { name: "Помидоры в собственном соку", amount: 150, unit: "г" },
+      { name: "Лук репчатый", amount: 70, unit: "г" },
+      { name: "Чеснок", amount: 3, unit: "зубч." },
+      { name: "Смесь бербере или паприка+зира", amount: 1.5, unit: "ч.л." },
+      { name: "Йогурт греческий 2%", amount: 80, unit: "г" },
+      { name: "Растительное масло", amount: 10, unit: "мл" },
+    ],
+  },
+  {
+    id: "turkey-ssamjang-lettuce-cups",
+    name: "Корейские стаканы из салата с индейкой и ссамджанг",
+    teaser: "Груша или яблоко в фарш — сладость по-корейски; есть руками, как анчжу.",
+    minutes: 30,
+    imageUrl: commonsThumb330(
+      "a/ad/Bibimbap_with_side_dishes.jpg/330px-Bibimbap_with_side_dishes.jpg"
+    ),
+    macrosPerServing: { kcal: 328, proteinG: 34, fatG: 13, carbsG: 20 },
+    ingredients: [
+      { name: "Фарш индейки", amount: 170, unit: "г" },
+      { name: "Салат айсберг или римский", amount: 120, unit: "г" },
+      { name: "Паста ссамджанг", amount: 25, unit: "г" },
+      { name: "Чеснок", amount: 2, unit: "зубч." },
+      { name: "Груша твёрдая", amount: 60, unit: "г" },
+      { name: "Кунжутное масло", amount: 5, unit: "мл" },
+      { name: "Рис отварной (холодный)", amount: 80, unit: "г" },
+    ],
+  },
+  {
+    id: "mapo-tofu-turkey",
+    name: "Мапо тофу с индейкой (сычуаньский профиль)",
+    teaser: "Доубаньцзян, сычуаньский перец, тофу шёлковый — жжёт и цепляет, без пол-бутылки масла.",
+    minutes: 35,
+    imageUrl: commonsThumb330("7/73/Authentic_Mapo_Tofu.jpg/330px-Authentic_Mapo_Tofu.jpg"),
+    macrosPerServing: { kcal: 392, proteinG: 31, fatG: 21, carbsG: 20 },
+    ingredients: [
+      { name: "Тофу шёлковый", amount: 300, unit: "г" },
+      { name: "Фарш индейки", amount: 100, unit: "г" },
+      { name: "Паста доубаньцзян", amount: 20, unit: "г" },
+      { name: "Чеснок", amount: 2, unit: "зубч." },
+      { name: "Имбирь", amount: 8, unit: "г" },
+      { name: "Бульон или вода", amount: 120, unit: "мл" },
+      { name: "Крахмал кукурузный", amount: 5, unit: "г" },
+      { name: "Масло растительное", amount: 12, unit: "мл" },
+    ],
+  },
+  {
+    id: "peruvian-aji-quinoa-bowl",
+    name: "Перуанский боул: курица под жёлтым ахи с киноа",
+    teaser: "Ахи амарильо (паста или замороженные перцы) даёт тропическую кислинку — редко на русской кухне.",
+    minutes: 45,
+    imageUrl: commonsThumb330("9/98/Ceviche.jpg/330px-Ceviche.jpg"),
+    macrosPerServing: { kcal: 498, proteinG: 44, fatG: 15, carbsG: 52 },
+    ingredients: [
+      { name: "Куриная грудка", amount: 190, unit: "г" },
+      { name: "Киноа сухая", amount: 50, unit: "г" },
+      { name: "Паста ахи амарильо или жёлтый перец+куркума", amount: 35, unit: "г" },
+      { name: "Лук репчатый", amount: 50, unit: "г" },
+      { name: "Чеснок", amount: 2, unit: "зубч." },
+      { name: "Лайм", amount: 0.5, unit: "шт" },
+      { name: "Зелёный горошек замороженный", amount: 80, unit: "г" },
+      { name: "Оливковое масло", amount: 10, unit: "мл" },
     ],
   },
 ];

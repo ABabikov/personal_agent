@@ -23,6 +23,11 @@ export type Recipe = {
   /** На одну порцию */
   macrosPerServing: MacroSet;
   ingredients: RecipeIngredient[];
+  /**
+   * Иллюстрация блюда (HTTPS). В прототипе — курируемые ссылки на сток;
+   * позже можно заменить на превью с импортированной страницы рецепта или своё хранилище.
+   */
+  imageUrl?: string;
 };
 
 export type MealSlot = {

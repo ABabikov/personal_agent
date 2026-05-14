@@ -1,6 +1,7 @@
 import type { MealPlanTargets, PlanLine, MealSlot } from "./types";
 import { DEFAULT_TARGETS, STORAGE_PLAN, STORAGE_STAPLES, STORAGE_TARGETS } from "./types";
 import { buildMealPlanPayload, type MealPlanAgentPayload } from "./mealPlanMerge";
+import { loadRecipeDiscoveryState, saveRecipePreferences, saveRecipeSources, toAgentRecipeDiscovery } from "./recipeDiscoveryStorage";
 
 const DEFAULT_STAPLES = `яйца
 молоко
@@ -112,7 +113,8 @@ function clampNum(v: unknown, fallback: number, min: number, max: number): numbe
 export function readMealPlanSnapshotForAgent(): MealPlanAgentPayload | null {
   if (typeof window === "undefined") return null;
   try {
-    return buildMealPlanPayload(loadTargets(), loadStaples(), loadPlan());
+    const discovery = toAgentRecipeDiscovery(loadRecipeDiscoveryState());
+    return buildMealPlanPayload(loadTargets(), loadStaples(), loadPlan(), discovery);
   } catch {
     return null;
   }
@@ -127,6 +129,10 @@ export function writeMealPlanSnapshotFromAgent(merged: MealPlanAgentPayload): vo
     saveTargets(merged.targets);
     saveStaples(merged.staples);
     savePlan(merged.plan);
+    if (merged.recipeDiscovery) {
+      saveRecipeSources(merged.recipeDiscovery.sources);
+      saveRecipePreferences(merged.recipeDiscovery.preferences);
+    }
     window.dispatchEvent(new CustomEvent(MEAL_PLAN_UPDATED_EVENT, { detail: { source: "chat" } }));
   } catch {
     /* ignore */

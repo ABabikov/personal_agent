@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChefHat, ClipboardList, Copy, ArrowDown, ArrowUp, Flame, Minus, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ChefHat, ClipboardList, Copy, ArrowDown, ArrowUp, Flame, Globe, Minus, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,19 @@ import {
   MEAL_PLAN_UPDATED_EVENT,
 } from "@/lib/features/meal-plan/storage";
 import type { MealPlanTargets, PlanLine, MealSlot } from "@/lib/features/meal-plan/types";
+import {
+  appendRecipeHistoryEntries,
+  createRecipeSourceId,
+  exclusionUrlKeys,
+  loadRecipeDiscoveryState,
+  normalizeSourceHost,
+  resetRecipeSourcesToDefault,
+  saveRecipeHistory,
+  saveRecipePreferences,
+  saveRecipeSources,
+} from "@/lib/features/meal-plan/recipeDiscoveryStorage";
+import type { RecipeDiscoveryState, RecipeSource } from "@/lib/features/meal-plan/recipeDiscoveryTypes";
+import { MAX_RECIPE_SOURCES } from "@/lib/features/meal-plan/recipeDiscoveryTypes";
 import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +45,42 @@ function fmtAmount(n: number): string {
 
 function macroLine(m: { kcal: number; proteinG: number; fatG: number; carbsG: number }): string {
   return `${Math.round(m.kcal)} ккал · Б ${fmtAmount(m.proteinG)} · Ж ${fmtAmount(m.fatG)} · У ${fmtAmount(m.carbsG)}`;
+}
+
+function RecipeCover({
+  src,
+  alt,
+  className,
+}: {
+  src: string | undefined;
+  alt: string;
+  className?: string;
+}) {
+  const [ok, setOk] = useState(true);
+  if (!src || !ok) {
+    return (
+      <div
+        className={cn(
+          "shrink-0 rounded-md bg-muted/80 ring-1 ring-border/50 flex items-center justify-center",
+          className
+        )}
+        aria-hidden
+      >
+        <ChefHat className="size-[42%] max-w-5 text-muted-foreground" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={cn("object-cover shrink-0 rounded-md ring-1 ring-border/40", className)}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setOk(false)}
+    />
+  );
 }
 
 /** Суточный дефицит ккал: коридор [min, max], 0…2000, min ≤ max. */
@@ -51,7 +100,7 @@ function normalizeDeficitRange(t: MealPlanTargets, minRaw: number, maxRaw: numbe
 export function MealPlanPage() {
   useRegisterPageChatContext(
     "Питание (прототип)",
-    "КБЖУ на день, настраиваемые слоты приёмов, коридор дефицита ккал, база продуктов, подбор рецептов и список покупок."
+    "КБЖУ, слоты приёмов, дефицит ккал, база продуктов, источники рецептов в сети с историей и предпочтениями, локальный каталог, список покупок."
   );
 
   const [ready, setReady] = useState(false);
@@ -60,11 +109,19 @@ export function MealPlanPage() {
   const [plan, setPlan] = useState<PlanLine[]>([]);
   const [copyOk, setCopyOk] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [recipeDisc, setRecipeDisc] = useState<RecipeDiscoveryState>(() => loadRecipeDiscoveryState());
+  const [newSourceHost, setNewSourceHost] = useState("");
+  const [newSourceLabel, setNewSourceLabel] = useState("");
+  const [searchFocus, setSearchFocus] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [searchHits, setSearchHits] = useState<{ title: string; url: string; snippet: string }[]>([]);
 
   useEffect(() => {
     setStaples(loadStaples());
     setTargets(loadTargets());
     setPlan(loadPlan());
+    setRecipeDisc(loadRecipeDiscoveryState());
     setReady(true);
   }, []);
 
@@ -74,6 +131,7 @@ export function MealPlanPage() {
       setStaples(loadStaples());
       setTargets(loadTargets());
       setPlan(loadPlan());
+      setRecipeDisc(loadRecipeDiscoveryState());
     };
     window.addEventListener(MEAL_PLAN_UPDATED_EVENT, onRemote);
     return () => window.removeEventListener(MEAL_PLAN_UPDATED_EVENT, onRemote);
@@ -171,6 +229,115 @@ export function MealPlanPage() {
 
   function removeLine(recipeId: string) {
     setPlanAndSave(plan.filter((l) => l.recipeId !== recipeId));
+  }
+
+  function persistRecipeSources(next: RecipeSource[]) {
+    const list = next.slice(0, MAX_RECIPE_SOURCES);
+    saveRecipeSources(list);
+    setRecipeDisc((d) => ({ ...d, sources: list }));
+  }
+
+  function persistPreferences(p: RecipeDiscoveryState["preferences"]) {
+    saveRecipePreferences(p);
+    setRecipeDisc((d) => ({ ...d, preferences: p }));
+  }
+
+  function toggleSourceHost(id: string) {
+    persistRecipeSources(recipeDisc.sources.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
+  }
+
+  function removeSourceRow(id: string) {
+    persistRecipeSources(recipeDisc.sources.filter((s) => s.id !== id));
+  }
+
+  function addCustomSource() {
+    const host = normalizeSourceHost(newSourceHost);
+    if (!host) {
+      setSearchErr("Введите hostname, например eda.ru");
+      return;
+    }
+    if (recipeDisc.sources.length >= MAX_RECIPE_SOURCES) return;
+    if (recipeDisc.sources.some((s) => s.host === host)) {
+      setSearchErr("Такой сайт уже в списке.");
+      return;
+    }
+    const label = newSourceLabel.trim() || host;
+    persistRecipeSources([
+      ...recipeDisc.sources,
+      { id: createRecipeSourceId(), label, host, enabled: true },
+    ]);
+    setNewSourceHost("");
+    setNewSourceLabel("");
+    setSearchErr(null);
+  }
+
+  function handleResetSources() {
+    const s = resetRecipeSourcesToDefault();
+    setRecipeDisc((d) => ({ ...d, sources: s }));
+  }
+
+  async function runRecipeSearch() {
+    setSearchErr(null);
+    const enabledHosts = recipeDisc.sources.filter((s) => s.enabled).map((s) => s.host);
+    if (enabledHosts.length < 1) {
+      setSearchErr("Включите хотя бы один источник.");
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const excludeKeys = exclusionUrlKeys(recipeDisc.history, recipeDisc.preferences.excludeRecent);
+      const res = await fetch("/api/meal-plan/recipe-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domains: enabledHosts,
+          excludeUrlKeys: excludeKeys,
+          focusQuery: searchFocus,
+          preferencesNotes: recipeDisc.preferences.notes,
+          novelty: recipeDisc.preferences.novelty,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        data?: { results: { title: string; url: string; snippet: string }[] };
+      };
+      if (!json.ok) {
+        setSearchErr(json.error ?? "Ошибка поиска");
+        setSearchHits([]);
+        return;
+      }
+      const results = json.data?.results ?? [];
+      setSearchHits(results);
+      if (results.length > 0) {
+        setRecipeDisc((d) => {
+          const nh = appendRecipeHistoryEntries(
+            d.history,
+            results.map((r) => ({ url: r.url, title: r.title, kind: "search_hit" as const }))
+          );
+          saveRecipeHistory(nh);
+          return { ...d, history: nh };
+        });
+      }
+    } catch {
+      setSearchErr("Сеть или сервер недоступны");
+      setSearchHits([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  function clearRecipeHistory() {
+    saveRecipeHistory([]);
+    setRecipeDisc((d) => ({ ...d, history: [] }));
+  }
+
+  function markUserOpened(title: string, url: string) {
+    setRecipeDisc((d) => {
+      const nh = appendRecipeHistoryEntries(d.history, [{ url, title, kind: "user_marked" }]);
+      saveRecipeHistory(nh);
+      return { ...d, history: nh };
+    });
   }
 
   async function copyShoppingList() {
@@ -432,9 +599,219 @@ export function MealPlanPage() {
 
       <Card size="sm">
         <CardHeader className="border-b border-border/50 pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Globe className="size-4 text-sky-400" />
+            Рецепты из сети: источники и поиск
+          </CardTitle>
+          <p className="text-xs text-muted-foreground font-normal leading-snug">
+            Засеянный список сайтов (hostname) — можно добавлять свои. Поиск идёт через Tavily только по включённым
+            доменам; недавние URL из истории отсекаются, чтобы реже повторяться. Предпочтения — текст + «новизна»
+            запроса.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-3">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={handleResetSources}>
+              Сбросить сайты к умолчанию
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground"
+              onClick={clearRecipeHistory}
+            >
+              Очистить историю URL
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Источники (включите чекбоксом)</Label>
+            <ul className="space-y-1.5">
+              {recipeDisc.sources.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center gap-2 rounded-md border border-border/50 bg-card/20 px-2 py-1.5 text-xs"
+                >
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-primary shrink-0"
+                    checked={s.enabled}
+                    onChange={() => toggleSourceHost(s.id)}
+                    aria-label={`Искать на ${s.host}`}
+                  />
+                  <span className="font-medium text-foreground truncate min-w-0">{s.label}</span>
+                  <span className="text-muted-foreground truncate tabular-nums">{s.host}</span>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    className="size-7 shrink-0 ml-auto text-destructive"
+                    onClick={() => removeSourceRow(s.id)}
+                    aria-label="Удалить источник"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div>
+              <Label className="text-xs">Новый сайт (hostname)</Label>
+              <Input
+                value={newSourceHost}
+                onChange={(e) => setNewSourceHost(e.target.value)}
+                placeholder="example.com"
+                spellCheck={false}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Подпись (необязательно)</Label>
+              <Input
+                value={newSourceLabel}
+                onChange={(e) => setNewSourceLabel(e.target.value)}
+                placeholder="Как показать в списке"
+              />
+            </div>
+            <Button type="button" size="sm" variant="secondary" onClick={addCustomSource} className="w-full sm:w-auto">
+              <Plus className="size-4" />
+              Добавить
+            </Button>
+          </div>
+
+          <div className="space-y-2 border-t border-border/40 pt-3">
+            <Label className="text-xs">Предпочтения поиска (учитываются в запросе)</Label>
+            <textarea
+              value={recipeDisc.preferences.notes}
+              onChange={(e) =>
+                persistPreferences({ ...recipeDisc.preferences, notes: e.target.value.slice(0, 4000) })
+              }
+              rows={3}
+              className={cn(
+                "w-full resize-y rounded-lg border border-glow-primary/30 bg-card/30 px-2.5 py-2 text-sm",
+                "placeholder:text-muted-foreground outline-none",
+                "focus-visible:border-glow-primary/60 focus-visible:ring-3 focus-visible:ring-glow-primary/20"
+              )}
+              placeholder="Например: без свинины, побольше рыбы, не острый, до 40 минут…"
+              spellCheck
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Новизна запроса (0–1)</Label>
+                <Input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={recipeDisc.preferences.novelty}
+                  onChange={(e) =>
+                    persistPreferences({
+                      ...recipeDisc.preferences,
+                      novelty: Number(e.target.value),
+                    })
+                  }
+                  className="w-full accent-primary"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                  {recipeDisc.preferences.novelty.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Исключать последних N из истории</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={80}
+                  value={recipeDisc.preferences.excludeRecent}
+                  onChange={(e) => {
+                    const v = e.target.value === "" ? 0 : Number(e.target.value);
+                    persistPreferences({
+                      ...recipeDisc.preferences,
+                      excludeRecent: Number.isFinite(v) ? Math.min(80, Math.max(0, Math.round(v))) : 0,
+                    });
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2 border-t border-border/40 pt-3">
+            <Label className="text-xs">Фокус запроса (необязательно)</Label>
+            <Input
+              value={searchFocus}
+              onChange={(e) => setSearchFocus(e.target.value.slice(0, 200))}
+              placeholder="Например: ужин с курицей, суп на неделю…"
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1.5"
+              disabled={searchLoading}
+              onClick={() => void runRecipeSearch()}
+            >
+              <Search className="size-3.5" />
+              {searchLoading ? "Ищем…" : "Найти на выбранных сайтах"}
+            </Button>
+            {searchErr && <p className="text-xs text-destructive">{searchErr}</p>}
+            {searchHits.length > 0 && (
+              <ul className="space-y-2 pt-1">
+                {searchHits.map((h, i) => (
+                  <li key={`${h.url}-${i}`} className="rounded-md border border-border/40 bg-card/15 p-2 text-xs">
+                    <a
+                      href={h.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-primary hover:underline break-words"
+                    >
+                      {h.title || h.url}
+                    </a>
+                    {h.snippet ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground leading-snug line-clamp-4">{h.snippet}</p>
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="mt-1 h-7 text-[11px]"
+                      onClick={() => markUserOpened(h.title || h.url, h.url)}
+                    >
+                      Запомнить открытие
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {recipeDisc.history.length > 0 && (
+            <div className="space-y-1 border-t border-border/40 pt-3">
+              <p className="text-xs font-medium text-foreground">Недавняя история (для анти-повторов)</p>
+              <ul className="max-h-40 overflow-y-auto space-y-1 text-[11px] text-muted-foreground">
+                {[...recipeDisc.history]
+                  .sort((a, b) => b.at.localeCompare(a.at))
+                  .slice(0, 12)
+                  .map((h) => (
+                    <li key={h.id} className="flex gap-2 truncate">
+                      <span className="shrink-0 tabular-nums opacity-70">{h.kind === "user_marked" ? "★" : "·"}</span>
+                      <a href={h.url} target="_blank" rel="noopener noreferrer" className="truncate hover:underline">
+                        {h.title}
+                      </a>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader className="border-b border-border/50 pb-3">
           <CardTitle className="text-base">Каталог рецептов</CardTitle>
           <p className="text-xs text-muted-foreground font-normal">
-            Сортировка по близости КБЖУ к одному приёму. Нажмите карточку — ингредиенты; «+ порция» — в план.
+            Сортировка по близости КБЖУ к одному приёму; у блюд — иллюстративные фото (Wikimedia Commons). Нажмите
+            карточку — ингредиенты; «+ порция» — в план.
           </p>
         </CardHeader>
         <CardContent className="space-y-2 pt-3">
@@ -454,17 +831,22 @@ export function MealPlanPage() {
                   className="w-full text-left"
                   onClick={() => setExpanded(open ? null : r.id)}
                 >
-                  <div className="flex justify-between gap-2">
-                    <span className="text-sm font-medium leading-snug">{r.name}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-                      {r.minutes} мин
-                    </span>
+                  <div className="flex gap-3">
+                    <RecipeCover src={r.imageUrl} alt={r.name} className="size-20 sm:size-[5.25rem]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-sm font-medium leading-snug">{r.name}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                          {r.minutes} мин
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{r.teaser}</p>
+                      <p className="mt-1.5 text-[11px] text-foreground/90">{macroLine(r.macrosPerServing)}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground/80">
+                        отклонение от цели приёма: {score.toFixed(2)} (меньше — ближе)
+                      </p>
+                    </div>
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{r.teaser}</p>
-                  <p className="mt-1.5 text-[11px] text-foreground/90">{macroLine(r.macrosPerServing)}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground/80">
-                    отклонение от цели приёма: {score.toFixed(2)} (меньше — ближе)
-                  </p>
                 </button>
                 {open && (
                   <div className="mt-2 border-t border-border/40 pt-2 space-y-2">
@@ -505,6 +887,7 @@ export function MealPlanPage() {
                     key={line.recipeId}
                     className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/15 px-2 py-1.5"
                   >
+                    <RecipeCover src={r.imageUrl} alt={r.name} className="size-10" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-medium leading-snug truncate">{r.name}</p>
                       <p className="text-[10px] text-muted-foreground">{macroLine(r.macrosPerServing)} / порция</p>
