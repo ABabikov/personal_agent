@@ -44,6 +44,12 @@ import {
   forgetFactTool,
 } from "@/lib/agent/tools/memory";
 import { webSearchTool } from "@/lib/agent/tools/web_search";
+import {
+  getExpensesSummaryTool,
+  getExpensesCategoryBreakdownTool,
+  listExpenseTransactionsTool,
+  listExpenseCategoriesTool,
+} from "@/lib/agent/tools/expenses_read";
 
 export const AGENT_TOOLS: AgentTool[] = [
   // профиль
@@ -79,6 +85,11 @@ export const AGENT_TOOLS: AgentTool[] = [
   rememberFactTool,
   listFactsTool,
   forgetFactTool,
+  // финансы (только чтение)
+  getExpensesSummaryTool,
+  getExpensesCategoryBreakdownTool,
+  listExpenseTransactionsTool,
+  listExpenseCategoriesTool,
   // внешний контекст
   webSearchTool,
 ];

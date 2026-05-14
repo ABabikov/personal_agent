@@ -20,6 +20,7 @@ export type ExpenseCategoryRow = {
   parent_id: string | null;
   name: string;
   kind: ExpenseKind;
+  is_archived: boolean;
 };
 
 export type ExpenseTransactionRow = {
@@ -72,7 +73,7 @@ export async function fetchExpensesPeriod(
       .order("name", { ascending: true }),
     supabase
       .from("expense_categories")
-      .select("id, parent_id, name, kind")
+      .select("id, parent_id, name, kind, is_archived")
       .eq("user_id", userId)
       .order("name", { ascending: true }),
   ]);
@@ -100,6 +101,87 @@ export async function fetchExpensesPeriod(
 
   // Postgrest по умолчанию режет 1000 строк — выставляем явный потолок.
   const { data: txData, error: txErr } = await txQuery
+    .order("occurred_at", { ascending: false })
+    .limit(20000);
+  if (txErr) return { error: txErr.message };
+
+  const accounts = (aRes.data ?? []) as ExpenseAccountRow[];
+  const categories = (cRes.data ?? []) as ExpenseCategoryRow[];
+  const transactions = (txData ?? []).map((r) => ({
+    ...r,
+    amount: Number(r.amount),
+  })) as ExpenseTransactionRow[];
+
+  return { data: { accounts, categories, transactions } };
+}
+
+/** Счета и категории без транзакций (лёгкий запрос для справочников). */
+export async function fetchExpenseAccountsAndCategories(
+  userId: string
+): Promise<{ data: Pick<ExpensesData, "accounts" | "categories"> } | { error: string }> {
+  const [aRes, cRes] = await Promise.all([
+    supabase
+      .from("expense_accounts")
+      .select("id, name, currency, is_archived")
+      .eq("user_id", userId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("expense_categories")
+      .select("id, parent_id, name, kind, is_archived")
+      .eq("user_id", userId)
+      .order("name", { ascending: true }),
+  ]);
+  if (aRes.error) return { error: aRes.error.message };
+  if (cRes.error) return { error: cRes.error.message };
+  return {
+    data: {
+      accounts: (aRes.data ?? []) as ExpenseAccountRow[],
+      categories: (cRes.data ?? []) as ExpenseCategoryRow[],
+    },
+  };
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Транзакции за интервал дат [startIsoDate; endIsoDate], формат YYYY-MM-DD. */
+export async function fetchExpensesBetween(
+  userId: string,
+  startIsoDate: string,
+  endIsoDate: string
+): Promise<{ data: ExpensesData } | { error: string }> {
+  if (!ISO_DATE.test(startIsoDate) || !ISO_DATE.test(endIsoDate)) {
+    return { error: "Даты должны быть в формате YYYY-MM-DD." };
+  }
+  if (startIsoDate > endIsoDate) {
+    return { error: "start_date не может быть позже end_date." };
+  }
+  const start = `${startIsoDate}T00:00:00`;
+  const end = `${endIsoDate}T23:59:59`;
+
+  const [aRes, cRes] = await Promise.all([
+    supabase
+      .from("expense_accounts")
+      .select("id, name, currency, is_archived")
+      .eq("user_id", userId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("expense_categories")
+      .select("id, parent_id, name, kind, is_archived")
+      .eq("user_id", userId)
+      .order("name", { ascending: true }),
+  ]);
+  if (aRes.error) return { error: aRes.error.message };
+  if (cRes.error) return { error: cRes.error.message };
+
+  const { data: txData, error: txErr } = await supabase
+    .from("expense_transactions")
+    .select(
+      "id, occurred_at, account_id, category_id, kind, amount, currency, description, merchant, source, pending"
+    )
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .gte("occurred_at", start)
+    .lte("occurred_at", end)
     .order("occurred_at", { ascending: false })
     .limit(20000);
   if (txErr) return { error: txErr.message };

@@ -69,6 +69,29 @@ export async function ensureDefaultExpenseAccount(
   return { id: created.id };
 }
 
+export async function insertExpenseCategory(params: {
+  userId: string;
+  name: string;
+  kind: ExpenseKind;
+  parentId?: string | null;
+}): Promise<{ id: string } | { error: string }> {
+  const name = params.name.trim();
+  if (!name) return { error: "Введите название категории." };
+  const { data, error } = await supabase
+    .from("expense_categories")
+    .insert({
+      user_id: params.userId,
+      parent_id: params.parentId ?? null,
+      name,
+      kind: params.kind,
+      is_archived: false,
+    })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  return { id: data.id };
+}
+
 const SBER_UPSERT_CHUNK = 60;
 
 /** Импорт операций из выписки Сбербанка (.xlsx). Дубликаты по (user_id, source, external_id) пропускаются. */

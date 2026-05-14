@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Wallet, TrendingDown, TrendingUp, Banknote, Trash2 } from "lucide-react";
+import { Wallet, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +21,10 @@ import {
 import {
   insertManualExpenseTransaction,
   ensureDefaultExpenseAccount,
+  insertExpenseCategory,
   softDeleteExpenseTransaction,
 } from "@/lib/db/expenseMutations";
+import { ExpenseCategoryCombobox } from "@/components/expenses/expense-category-combobox";
 import { SberXlsxImportDialog } from "@/components/expenses/sber-xlsx-import-dialog";
 import { ExpenseMonthCalendar } from "@/components/expenses/expense-month-calendar";
 import { expenseTransactionLocalDate } from "@/lib/features/expenses/expenseCalendar";
@@ -66,7 +68,7 @@ type KindFilter = "all" | "expense" | "income" | "withdrawal";
 export function ExpensesPage() {
   useRegisterPageChatContext(
     "Финансы",
-    "Календарь месяца: по дню — операции и ручное добавление; ниже — сводка за месяц."
+    "Вверху — сводка по текущему календарному месяцу и году (все счета). Календарь месяца, операции по дню, фильтры и график по категориям. Можно добавить свою категорию в блоке «Справочник категорий»."
   );
 
   const today = new Date();
@@ -92,6 +94,15 @@ export function ExpensesPage() {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [overviewMonth, setOverviewMonth] = useState<ReturnType<typeof totals> | null>(null);
+  const [overviewYear, setOverviewYear] = useState<ReturnType<typeof totals> | null>(null);
+
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatKind, setNewCatKind] = useState<ExpenseKind>("expense");
+  const [newCatParentId, setNewCatParentId] = useState("");
+  const [newCatError, setNewCatError] = useState<string | null>(null);
+  const [newCatSubmitting, setNewCatSubmitting] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -101,24 +112,39 @@ export function ExpensesPage() {
       setLoading(false);
       return;
     }
-    let res = await fetchExpensesPeriod(user.userId, "month", { year, monthIdx0 });
-    if ("error" in res) {
-      setError(res.error);
+    const clock = new Date();
+    const curY = clock.getFullYear();
+    const curM = clock.getMonth();
+
+    const [mainRes, omRes, oyRes] = await Promise.all([
+      fetchExpensesPeriod(user.userId, "month", { year, monthIdx0 }),
+      fetchExpensesPeriod(user.userId, "month", { year: curY, monthIdx0: curM }),
+      fetchExpensesPeriod(user.userId, "year", { year: curY }),
+    ]);
+
+    if ("error" in mainRes) {
+      setError(mainRes.error);
       setLoading(false);
       return;
     }
+    let res = mainRes;
     if (res.data.accounts.length === 0) {
       const ensured = await ensureDefaultExpenseAccount(user.userId);
       if ("id" in ensured) {
-        res = await fetchExpensesPeriod(user.userId, "month", { year, monthIdx0 });
-        if ("error" in res) {
-          setError(res.error);
+        const again = await fetchExpensesPeriod(user.userId, "month", { year, monthIdx0 });
+        if ("error" in again) {
+          setError(again.error);
           setLoading(false);
           return;
         }
+        res = again;
       }
     }
     setData(res.data);
+    if (!("error" in omRes)) setOverviewMonth(totals(omRes.data.transactions));
+    else setOverviewMonth(null);
+    if (!("error" in oyRes)) setOverviewYear(totals(oyRes.data.transactions));
+    else setOverviewYear(null);
     setLoading(false);
   }, [year, monthIdx0]);
 
@@ -131,11 +157,16 @@ export function ExpensesPage() {
     year: "numeric",
   });
 
+  const activeCategories = useMemo(
+    () => data.categories.filter((c) => !c.is_archived),
+    [data.categories]
+  );
+
   const parentCategories = useMemo(() => {
-    return data.categories
+    return activeCategories
       .filter((c) => c.parent_id == null)
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [data.categories]);
+  }, [activeCategories]);
 
   const parentByCategoryId = useMemo(() => {
     const byId = new Map(data.categories.map((c) => [c.id, c]));
@@ -162,10 +193,30 @@ export function ExpensesPage() {
   );
 
   const categoriesMatchingFormKind = useMemo(() => {
-    return data.categories
+    return activeCategories
       .filter((c) => c.kind === formKind)
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [data.categories, formKind]);
+  }, [activeCategories, formKind]);
+
+  const formCategoryOptions = useMemo(() => {
+    return categoriesMatchingFormKind.map((c) => {
+      const parent = c.parent_id ? categoryById.get(c.parent_id) : null;
+      const label = parent ? `${parent.name} / ${c.name}` : c.name;
+      return { id: c.id, label };
+    });
+  }, [categoriesMatchingFormKind, categoryById]);
+
+  const parentFilterOptions = useMemo(
+    () => parentCategories.map((c) => ({ id: c.id, label: c.name })),
+    [parentCategories]
+  );
+
+  const newCategoryParentOptions = useMemo(() => {
+    return activeCategories
+      .filter((c) => c.kind === newCatKind && c.parent_id == null)
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+      .map((c) => ({ id: c.id, label: c.name }));
+  }, [activeCategories, newCatKind]);
 
   useEffect(() => {
     if (data.accounts.length === 0) return;
@@ -179,10 +230,36 @@ export function ExpensesPage() {
     setFormCategoryId((prev) => {
       if (!prev) return "";
       const cat = categoryById.get(prev);
-      if (!cat || cat.kind !== formKind) return "";
+      if (!cat || cat.kind !== formKind || cat.is_archived) return "";
       return prev;
     });
   }, [formKind, categoryById]);
+
+  useEffect(() => {
+    setNewCatParentId((prev) => {
+      if (!prev) return "";
+      const p = categoryById.get(prev);
+      if (!p || p.kind !== newCatKind || p.parent_id != null || p.is_archived) return "";
+      return prev;
+    });
+  }, [newCatKind, categoryById]);
+
+  const categoryReviewTree = useMemo(() => {
+    const childrenByParent = new Map<string, typeof activeCategories>();
+    for (const c of activeCategories) {
+      if (!c.parent_id) continue;
+      const arr = childrenByParent.get(c.parent_id) ?? [];
+      arr.push(c);
+      childrenByParent.set(c.parent_id, arr);
+    }
+    for (const [, arr] of childrenByParent) {
+      arr.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    }
+    return parentCategories.map((p) => ({
+      parent: p,
+      children: childrenByParent.get(p.id) ?? [],
+    }));
+  }, [activeCategories, parentCategories]);
 
   const filteredTransactions = useMemo<ExpenseTransactionRow[]>(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -358,6 +435,46 @@ export function ExpensesPage() {
     }
   }
 
+  async function onSubmitNewCategory(e: React.FormEvent) {
+    e.preventDefault();
+    setNewCatError(null);
+    const name = newCatName.trim();
+    if (!name) {
+      setNewCatError("Введите название.");
+      return;
+    }
+    setNewCatSubmitting(true);
+    try {
+      const user = await getWorkoutUserId();
+      if ("error" in user) {
+        setNewCatError(user.error);
+        return;
+      }
+      const res = await insertExpenseCategory({
+        userId: user.userId,
+        name,
+        kind: newCatKind,
+        parentId: newCatParentId || null,
+      });
+      if ("error" in res) {
+        setNewCatError(res.error);
+        return;
+      }
+      setNewCatName("");
+      setNewCatParentId("");
+      await load();
+    } finally {
+      setNewCatSubmitting(false);
+    }
+  }
+
+  const calendarNow = new Date();
+  const overviewMonthTitle = new Date(
+    calendarNow.getFullYear(),
+    calendarNow.getMonth(),
+    1
+  ).toLocaleDateString("ru", { month: "long", year: "numeric" });
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -369,7 +486,7 @@ export function ExpensesPage() {
           <SberXlsxImportDialog
             disabled={loading}
             onImported={() => void load()}
-            categories={data.categories}
+            categories={activeCategories}
           />
           <Button
             type="button"
@@ -388,6 +505,74 @@ export function ExpensesPage() {
           {error}
         </p>
       )}
+
+      <div className="rounded-md border border-border/70 bg-muted/15 px-3 py-2.5 text-xs text-foreground">
+        <p className="mb-2 font-medium text-muted-foreground">
+          Сводка по календарю · все счета
+        </p>
+        <div className="space-y-2 tabular-nums leading-relaxed">
+          <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-6">
+            <span className="shrink-0 capitalize text-muted-foreground sm:w-36">
+              {overviewMonthTitle}
+            </span>
+            <span className="text-muted-foreground">
+              доход{" "}
+              <span className="text-foreground">
+                {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.income ?? 0)}
+              </span>
+            </span>
+            <span className="text-muted-foreground">
+              расход{" "}
+              <span className="text-foreground">
+                {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.expense ?? 0)}
+              </span>
+            </span>
+            <span className="text-muted-foreground">
+              баланс{" "}
+              <span
+                className={
+                  (overviewMonth?.net ?? 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
+                }
+              >
+                {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.net ?? 0)}
+              </span>
+            </span>
+            <span className="text-muted-foreground sm:ml-auto">
+              {overviewMonth?.count ?? 0} оп.
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 border-t border-border/50 pt-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-6">
+            <span className="shrink-0 text-muted-foreground sm:w-36">
+              С начала {calendarNow.getFullYear()} г.
+            </span>
+            <span className="text-muted-foreground">
+              доход{" "}
+              <span className="text-foreground">
+                {loading && overviewYear == null ? "…" : formatRub(overviewYear?.income ?? 0)}
+              </span>
+            </span>
+            <span className="text-muted-foreground">
+              расход{" "}
+              <span className="text-foreground">
+                {loading && overviewYear == null ? "…" : formatRub(overviewYear?.expense ?? 0)}
+              </span>
+            </span>
+            <span className="text-muted-foreground">
+              баланс{" "}
+              <span
+                className={
+                  (overviewYear?.net ?? 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
+                }
+              >
+                {loading && overviewYear == null ? "…" : formatRub(overviewYear?.net ?? 0)}
+              </span>
+            </span>
+            <span className="text-muted-foreground sm:ml-auto">
+              {overviewYear?.count ?? 0} оп.
+            </span>
+          </div>
+        </div>
+      </div>
 
       <ExpenseMonthCalendar
         year={year}
@@ -457,18 +642,15 @@ export function ExpensesPage() {
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-muted-foreground">Категория</span>
-                <select
+                <ExpenseCategoryCombobox
+                  id="expense-form-category"
                   value={formCategoryId}
-                  onChange={(e) => setFormCategoryId(e.target.value)}
-                  className="h-8 rounded-md border border-border bg-card px-2 text-sm"
-                >
-                  <option value="">Не указана</option>
-                  {categoriesMatchingFormKind.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setFormCategoryId}
+                  options={formCategoryOptions}
+                  allowEmpty
+                  emptyLabel="Не указана"
+                  disabled={loading}
+                />
               </label>
             </div>
             <label className="flex flex-col gap-1 text-xs">
@@ -564,64 +746,31 @@ export function ExpensesPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <div className="flex items-baseline gap-1">
-              <TrendingDown className="size-4 text-red-500" />
-              <p className="text-2xl font-bold tabular-nums">
-                {loading ? "…" : formatRub(kpis.expense)}
-              </p>
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">расход</p>
-            <p className="text-[10px] capitalize text-muted-foreground">{periodTitle}</p>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <div className="flex items-baseline gap-1">
-              <TrendingUp className="size-4 text-emerald-500" />
-              <p className="text-2xl font-bold tabular-nums">
-                {loading ? "…" : formatRub(kpis.income)}
-              </p>
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">доход</p>
-            <p className="text-[10px] capitalize text-muted-foreground">{periodTitle}</p>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <p
-              className={`text-2xl font-bold tabular-nums ${
-                kpis.net < 0 ? "text-red-500" : "text-emerald-500"
-              }`}
-            >
-              {loading ? "…" : formatRub(kpis.net)}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">баланс</p>
-            <p className="text-[10px] text-muted-foreground">доход − расход</p>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardContent className="pt-3">
-            <div className="flex items-baseline gap-1">
-              <Banknote className="size-4 text-muted-foreground" />
-              <p className="text-2xl font-bold tabular-nums">
-                {loading ? "…" : kpis.count.toLocaleString("ru")}
-              </p>
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">операций</p>
-            <p className="text-[10px] text-muted-foreground">
-              {formatRub(kpis.withdrawal)} снятий
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       <Card size="sm">
         <CardContent className="space-y-2 pt-3">
-          <p className="text-xs font-medium text-muted-foreground">
-            Фильтры для сводки за месяц
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Фильтры и сводка за выбранный месяц
+            </p>
+            <p className="text-xs tabular-nums text-muted-foreground capitalize">{periodTitle}</p>
+          </div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            <span className="text-foreground">Доход</span> {formatRub(kpis.income)}
+            {" · "}
+            <span className="text-foreground">расход</span> {formatRub(kpis.expense)}
+            {" · "}
+            <span className="text-foreground">баланс</span>{" "}
+            <span className={kpis.net < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
+              {formatRub(kpis.net)}
+            </span>
+            {" · "}
+            {kpis.count} оп.
+            {kpis.withdrawal > 0 && (
+              <>
+                {" · "}
+                снятия {formatRub(kpis.withdrawal)}
+              </>
+            )}
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-xs">
@@ -640,19 +789,17 @@ export function ExpensesPage() {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs">
-              <span className="text-muted-foreground">Категория</span>
-              <select
+              <span className="text-muted-foreground">Категория (верхний уровень)</span>
+              <ExpenseCategoryCombobox
+                id="expense-filter-parent-cat"
                 value={parentCategoryId}
-                onChange={(e) => setParentCategoryId(e.target.value)}
-                className="h-8 rounded-md border border-border bg-card px-2 text-sm"
-              >
-                <option value="">Все</option>
-                {parentCategories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setParentCategoryId}
+                options={parentFilterOptions}
+                allowEmpty
+                emptyLabel="Все"
+                placeholder="Поиск категории…"
+                disabled={loading}
+              />
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted-foreground">Тип</span>
@@ -734,6 +881,103 @@ export function ExpensesPage() {
           </CardContent>
         </Card>
       )}
+
+      <details className="rounded-md border border-border/70 bg-card/40 px-3 py-2 text-xs open:pb-3">
+        <summary className="cursor-pointer font-medium text-muted-foreground">
+          Справочник категорий и своя категория
+        </summary>
+        <div className="mt-3 space-y-4">
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Текущий набор — из импорта (Money Manager, Сбер) и ручных записей. Дерево: родитель
+            и подкатегории; для графика «по категориям» суммируются расходы по родителю.
+          </p>
+          <div className="max-h-48 overflow-y-auto rounded-md border border-border/60 bg-muted/15 p-2">
+            {categoryReviewTree.length === 0 ? (
+              <p className="text-muted-foreground">Нет категорий</p>
+            ) : (
+              <ul className="space-y-2">
+                {categoryReviewTree.map(({ parent: p, children }) => (
+                  <li key={p.id}>
+                    <div className="font-medium text-foreground">
+                      {p.name}
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        (
+                        {p.kind === "expense"
+                          ? "расход"
+                          : p.kind === "income"
+                            ? "доход"
+                            : p.kind === "withdrawal"
+                              ? "снятие"
+                              : "перевод"}
+                        )
+                      </span>
+                    </div>
+                    {children.length > 0 && (
+                      <ul className="mt-1 space-y-0.5 border-l border-border/60 pl-2 text-muted-foreground">
+                        {children.map((ch) => (
+                          <li key={ch.id}>— {ch.name}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <form
+            onSubmit={(e) => void onSubmitNewCategory(e)}
+            className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2"
+          >
+            <p className="text-[11px] font-medium text-muted-foreground">Добавить свою категорию</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">Название</span>
+                <Input
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="Например, Подписки"
+                  className="h-8"
+                  maxLength={120}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">Тип</span>
+                <select
+                  value={newCatKind}
+                  onChange={(e) => setNewCatKind(e.target.value as ExpenseKind)}
+                  className="h-8 rounded-md border border-border bg-card px-2 text-sm"
+                >
+                  <option value="expense">Расход</option>
+                  <option value="income">Доход</option>
+                  <option value="withdrawal">Снятие</option>
+                  <option value="transfer">Перевод</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground">Родитель (опционально)</span>
+                <ExpenseCategoryCombobox
+                  id="expense-new-cat-parent"
+                  value={newCatParentId}
+                  onChange={setNewCatParentId}
+                  options={newCategoryParentOptions}
+                  allowEmpty
+                  emptyLabel="Корневая категория"
+                  placeholder="Поиск группы…"
+                  disabled={loading || newCatSubmitting}
+                />
+              </label>
+            </div>
+            {newCatError && (
+              <p className="text-[11px] text-destructive" role="alert">
+                {newCatError}
+              </p>
+            )}
+            <Button type="submit" size="sm" disabled={loading || newCatSubmitting}>
+              {newCatSubmitting ? "Сохранение…" : "Добавить категорию"}
+            </Button>
+          </form>
+        </div>
+      </details>
     </div>
   );
 }
