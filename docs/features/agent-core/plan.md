@@ -14,7 +14,11 @@ src/lib/agent/
 │   ├── workouts_read.ts  # get_last_*, get_recent, get_workouts_in_range, get_workout_details, get_current_week_stats
 │   ├── analytics.ts      # get_period_stats, list_exercises, get_exercise_dynamics, get_tonnage_by_weekday
 │   ├── workouts_write.ts # save_gym_workout, save_swim_workout, suggest_next_gym_sets, estimate_gym_calories
+│   ├── workouts_edit.ts  # update_workout, update_gym_exercises, update_swim_series, delete/restore/list_deleted
 │   ├── memory.ts         # remember_fact, list_facts, forget_fact
+│   ├── expenses_read.ts  # сводки и списки финансов (read-only)
+│   ├── meal_plan.ts      # get_meal_plan_state, set_meal_plan_state (снимок mealPlan с клиента)
+│   ├── web_search.ts     # web_search
 │   └── index.ts          # AGENT_TOOLS + toolsToSpecs() + runTool()
 ├── memory/
 │   ├── store.ts          # save/load chat_messages, toApiMessages
@@ -23,7 +27,7 @@ src/lib/agent/
 │   └── system.ts         # buildSystemPrompt(recall, now)
 └── loop.ts               # runAgent() — ReAct цикл
 
-src/app/api/chat/route.ts # POST handler: парсит body, дёргает runAgent
+src/app/api/chat/route.ts # POST: userId, conversationId, message, pageContext?, mealPlan? → runAgent
 src/app/(web)/chat/page.tsx # UI: пузыри, trace тулов, новая сессия
 ```
 
@@ -84,9 +88,17 @@ Request:
 {
   "userId": "<uuid>",
   "conversationId": "<uuid>",
-  "message": "Что было в прошлый раз?"
+  "message": "Что было в прошлый раз?",
+  "pageContext": "Экран: …",
+  "mealPlan": {
+    "targets": { "kcal": 2200, "proteinG": 140, "fatG": 75, "carbsG": 220, "mealSlots": [{"id":"lunch","label":"Обед"}], "deficitKcalMin": 200, "deficitKcalMax": 400 },
+    "staples": "яйца\nлук\n",
+    "plan": [{ "recipeId": "chicken-bulgur-veg", "portions": 1 }]
+  }
 }
 ```
+
+Опционально: `pageContext` (текст с экрана), `mealPlan` (снимок раздела «Питание» с клиента для тулов `get_meal_plan_state` / `set_meal_plan_state`).
 
 Response:
 ```json

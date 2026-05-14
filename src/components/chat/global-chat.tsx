@@ -15,6 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 import { buildPageContextPayload, CHAT_ROUTE_LABELS } from "@/lib/chat/pageContext";
 import { fetchChatHistoryFromApi } from "@/lib/chat/storedToBubbles";
+import { applyMealPlanFromChatSteps } from "@/lib/chat/mealPlanChatApply";
+import { readMealPlanSnapshotForAgent } from "@/lib/features/meal-plan/storage";
 import { ChatConversationPicker } from "@/components/chat/chat-conversation-picker";
 
 const CONV_KEY = "personal_agent_chat_conversation_id";
@@ -134,12 +136,16 @@ export function GlobalChat() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          conversationId,
-          message: text,
-          pageContext: pageContextPayload,
-        }),
+        body: (() => {
+          const snap = readMealPlanSnapshotForAgent();
+          return JSON.stringify({
+            userId,
+            conversationId,
+            message: text,
+            pageContext: pageContextPayload,
+            ...(snap ? { mealPlan: snap } : {}),
+          });
+        })(),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -168,6 +174,7 @@ export function GlobalChat() {
             })),
           })
         );
+        applyMealPlanFromChatSteps(steps);
         setBubbles((b) => [
           ...b,
           { role: "assistant", text: data.finalAnswer ?? "", steps },

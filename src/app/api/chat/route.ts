@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent/loop";
+import { safeParseClientMealPlanPayload } from "@/lib/features/meal-plan/mealPlanMerge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export async function POST(req: Request) {
   const message = typeof obj.message === "string" ? obj.message : "";
   const pageContext =
     typeof obj.pageContext === "string" ? obj.pageContext.trim() : "";
+  const mealPlanClient = safeParseClientMealPlanPayload(obj.mealPlan);
 
   if (!userId || !conversationId || !message.trim()) {
     return NextResponse.json(
@@ -36,6 +38,7 @@ export async function POST(req: Request) {
       conversationId,
       userMessage: message,
       pageContext: pageContext || undefined,
+      mealPlanClient: mealPlanClient ?? null,
     });
     return NextResponse.json(result);
   } catch (e) {

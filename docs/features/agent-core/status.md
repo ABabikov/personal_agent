@@ -18,6 +18,7 @@
 | Тулы: редактирование (update_workout, update_gym_exercises, update_swim_series) | Done        | 2026-05-11 |
 | Тулы: безопасное удаление (delete_workout soft + restore_workout + list_deleted_workouts) + миграция 004 | Done | 2026-05-11 |
 | Тулы: память (remember_fact, list_facts, forget_fact)                    | Done        | 2026-05-11 |
+| Тулы: питание (get_meal_plan_state, set_meal_plan_state) + `mealPlan` в POST /api/chat, применение на клиенте | Done | 2026-05-14 |
 | Loop: ReAct-цикл с сохранением каждого сообщения в БД                    | Done        | 2026-05-11 |
 | Recall: семантический поиск по чатам и фактам (косинус-фоллбек)          | Done        | 2026-05-11 |
 | System prompt с инъекцией фактов и обрывков прошлых разговоров           | Done        | 2026-05-11 |

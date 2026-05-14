@@ -9,6 +9,7 @@ import {
   User,
   MessageSquare,
   Wallet,
+  UtensilsCrossed,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,11 @@ const NAV_ITEMS = [
     href: "/expenses",
     label: "Финансы",
     icon: Wallet,
+  },
+  {
+    href: "/meal-plan",
+    label: "Еда",
+    icon: UtensilsCrossed,
   },
   {
     href: "/chat",

@@ -506,70 +506,76 @@ export function ExpensesPage() {
         </p>
       )}
 
-      <div className="rounded-md border border-border/70 bg-muted/15 px-3 py-2.5 text-xs text-foreground">
-        <p className="mb-2 font-medium text-muted-foreground">
+      <div className="rounded-md border border-border/70 bg-muted/15 px-2 py-1.5 text-[11px] text-foreground sm:px-2.5 sm:text-xs">
+        <p className="mb-1 font-medium leading-none text-muted-foreground">
           Сводка по календарю · все счета
         </p>
-        <div className="space-y-2 tabular-nums leading-relaxed">
-          <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-6">
-            <span className="shrink-0 capitalize text-muted-foreground sm:w-36">
-              {overviewMonthTitle}
-            </span>
-            <span className="text-muted-foreground">
-              доход{" "}
-              <span className="text-foreground">
-                {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.income ?? 0)}
-              </span>
-            </span>
-            <span className="text-muted-foreground">
-              расход{" "}
-              <span className="text-foreground">
-                {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.expense ?? 0)}
-              </span>
-            </span>
-            <span className="text-muted-foreground">
-              баланс{" "}
-              <span
-                className={
-                  (overviewMonth?.net ?? 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
-                }
-              >
-                {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.net ?? 0)}
-              </span>
-            </span>
-            <span className="text-muted-foreground sm:ml-auto">
-              {overviewMonth?.count ?? 0} оп.
-            </span>
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0 tabular-nums leading-tight">
+          <div className="min-w-0 border-r border-border/50 pr-2">
+            <p className="mb-0.5 truncate capitalize text-muted-foreground">{overviewMonthTitle}</p>
+            <dl className="space-y-0.5">
+              <div className="flex justify-between gap-1">
+                <dt className="shrink-0 text-muted-foreground">доход</dt>
+                <dd className="min-w-0 truncate text-right text-foreground">
+                  {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.income ?? 0)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-1">
+                <dt className="shrink-0 text-muted-foreground">расход</dt>
+                <dd className="min-w-0 truncate text-right text-foreground">
+                  {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.expense ?? 0)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-1">
+                <dt className="shrink-0 text-muted-foreground">баланс</dt>
+                <dd
+                  className={`min-w-0 truncate text-right ${
+                    (overviewMonth?.net ?? 0) < 0
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.net ?? 0)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-1 text-muted-foreground">
+                <dt className="shrink-0">оп.</dt>
+                <dd>{overviewMonth?.count ?? 0}</dd>
+              </div>
+            </dl>
           </div>
-          <div className="flex flex-col gap-1 border-t border-border/50 pt-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-6">
-            <span className="shrink-0 text-muted-foreground sm:w-36">
-              С начала {calendarNow.getFullYear()} г.
-            </span>
-            <span className="text-muted-foreground">
-              доход{" "}
-              <span className="text-foreground">
-                {loading && overviewYear == null ? "…" : formatRub(overviewYear?.income ?? 0)}
-              </span>
-            </span>
-            <span className="text-muted-foreground">
-              расход{" "}
-              <span className="text-foreground">
-                {loading && overviewYear == null ? "…" : formatRub(overviewYear?.expense ?? 0)}
-              </span>
-            </span>
-            <span className="text-muted-foreground">
-              баланс{" "}
-              <span
-                className={
-                  (overviewYear?.net ?? 0) < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
-                }
-              >
-                {loading && overviewYear == null ? "…" : formatRub(overviewYear?.net ?? 0)}
-              </span>
-            </span>
-            <span className="text-muted-foreground sm:ml-auto">
-              {overviewYear?.count ?? 0} оп.
-            </span>
+          <div className="min-w-0 pl-0.5">
+            <p className="mb-0.5 truncate text-muted-foreground">С начала {calendarNow.getFullYear()} г.</p>
+            <dl className="space-y-0.5">
+              <div className="flex justify-between gap-1">
+                <dt className="shrink-0 text-muted-foreground">доход</dt>
+                <dd className="min-w-0 truncate text-right text-foreground">
+                  {loading && overviewYear == null ? "…" : formatRub(overviewYear?.income ?? 0)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-1">
+                <dt className="shrink-0 text-muted-foreground">расход</dt>
+                <dd className="min-w-0 truncate text-right text-foreground">
+                  {loading && overviewYear == null ? "…" : formatRub(overviewYear?.expense ?? 0)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-1">
+                <dt className="shrink-0 text-muted-foreground">баланс</dt>
+                <dd
+                  className={`min-w-0 truncate text-right ${
+                    (overviewYear?.net ?? 0) < 0
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {loading && overviewYear == null ? "…" : formatRub(overviewYear?.net ?? 0)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-1 text-muted-foreground">
+                <dt className="shrink-0">оп.</dt>
+                <dd>{overviewYear?.count ?? 0}</dd>
+              </div>
+            </dl>
           </div>
         </div>
       </div>

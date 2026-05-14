@@ -50,6 +50,7 @@ import {
   listExpenseTransactionsTool,
   listExpenseCategoriesTool,
 } from "@/lib/agent/tools/expenses_read";
+import { getMealPlanStateTool, setMealPlanStateTool } from "@/lib/agent/tools/meal_plan";
 
 export const AGENT_TOOLS: AgentTool[] = [
   // профиль
@@ -90,6 +91,9 @@ export const AGENT_TOOLS: AgentTool[] = [
   getExpensesCategoryBreakdownTool,
   listExpenseTransactionsTool,
   listExpenseCategoriesTool,
+  // питание (снимок с клиента mealPlan в POST /api/chat)
+  getMealPlanStateTool,
+  setMealPlanStateTool,
   // внешний контекст
   webSearchTool,
 ];

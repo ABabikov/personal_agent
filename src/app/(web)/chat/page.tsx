@@ -9,6 +9,8 @@ import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import { usePageChatContext, useRegisterPageChatContext } from "@/contexts/page-chat-context";
 import { buildPageContextPayload } from "@/lib/chat/pageContext";
 import { fetchChatHistoryFromApi } from "@/lib/chat/storedToBubbles";
+import { applyMealPlanFromChatSteps } from "@/lib/chat/mealPlanChatApply";
+import { readMealPlanSnapshotForAgent } from "@/lib/features/meal-plan/storage";
 import { ChatConversationPicker } from "@/components/chat/chat-conversation-picker";
 import {
   ChatBubbleView,
@@ -139,12 +141,16 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          conversationId,
-          message: text,
-          pageContext: pageContextPayload,
-        }),
+        body: (() => {
+          const snap = readMealPlanSnapshotForAgent();
+          return JSON.stringify({
+            userId,
+            conversationId,
+            message: text,
+            pageContext: pageContextPayload,
+            ...(snap ? { mealPlan: snap } : {}),
+          });
+        })(),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -167,6 +173,7 @@ export default function ChatPage() {
             payload: tc.result?.payload,
           })),
         }));
+        applyMealPlanFromChatSteps(steps);
         setBubbles((b) => [
           ...b,
           { role: "assistant", text: data.finalAnswer ?? "", steps },

@@ -3,6 +3,8 @@
  * Параметры всегда в формате JSONSchema (object), как ожидает OpenRouter/OpenAI.
  */
 
+import type { MealPlanAgentPayload } from "@/lib/features/meal-plan/mealPlanMerge";
+
 export type ToolJsonSchema = {
   type: "object";
   properties: Record<string, unknown>;
@@ -13,6 +15,8 @@ export type ToolJsonSchema = {
 export type ToolContext = {
   /** ID пользователя в Supabase (всегда заполнен после resolveContext). */
   userId: string;
+  /** Снимок раздела «Питание» с клиента (POST /api/chat mealPlan); для get/set_meal_plan_state. */
+  mealPlanClient?: MealPlanAgentPayload | null;
 };
 
 export type ToolResult =

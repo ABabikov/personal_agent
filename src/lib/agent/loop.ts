@@ -28,6 +28,8 @@ export type AgentRunInput = {
   userMessage: string;
   /** Текстовый снимок экрана (маршрут, видимые данные) — усиливает персонализацию ответа. */
   pageContext?: string;
+  /** Снимок раздела «Питание» с клиента (localStorage) — для тулов get/set_meal_plan_state. */
+  mealPlanClient?: import("@/lib/features/meal-plan/mealPlanMerge").MealPlanAgentPayload | null;
   /** Жёсткий потолок шагов в ReAct-цикле. */
   maxIterations?: number;
 };
@@ -120,11 +122,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       });
 
       for (const tc of completion.toolCalls) {
-        const result = await runTool(
-          tc.function.name,
-          tc.function.arguments,
-          { userId: input.userId }
-        );
+        const result = await runTool(tc.function.name, tc.function.arguments, {
+          userId: input.userId,
+          mealPlanClient: input.mealPlanClient ?? null,
+        });
         const payloadStr = JSON.stringify(result);
         step.toolCalls.push({
           name: tc.function.name,
