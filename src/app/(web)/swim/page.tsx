@@ -23,6 +23,7 @@ import {
 } from "@/lib/features/swimming/swimGenerationMethodology";
 import { loadSwimMediumGoals } from "@/lib/features/swimming/swimMediumGoalsStorage";
 import { swimMetersRolling28Days } from "@/lib/features/swimming/swimRollingStats";
+import { defaultShuffleSeed } from "@/lib/features/swimming/swimPlanRng";
 import {
   SWIM_GOALS,
   formatGoalsLabel,
@@ -399,7 +400,7 @@ export default function SwimPage() {
   const pageSummary = useMemo(() => {
     const lines: string[] = [
       "Раздел «Плавание»: запись тренировки по сериям, общий метраж, заметки.",
-      `Планировщик черновика: фокус «${formatGoalsLabel(selectedGoals)}», объём ${targetVolume.trim() || "—"} м${focusText.trim() ? `, уточнение «${focusText.trim()}»` : ""}. Снаряжение: ${filterGear ? `фильтр включён (${inventory.length} поз.)` : "фильтр выключен — все блоки каталога"}.`,
+      `Планировщик черновика: фокус «${formatGoalsLabel(selectedGoals)}», объём ${targetVolume.trim() || "—"} м${focusText.trim() ? `, уточнение «${focusText.trim()}»` : ""}. Снаряжение: ${filterGear ? `фильтр включён (${inventory.length} поз.)` : "фильтр выключен — все блоки каталога"}. Генерация кнопкой — не LLM: каталог + локальный код; новый случайный набор на каждое нажатие; поиск в интернете только через чат (web_search).`,
     ];
     if (lastParsed) {
       lines.push(
@@ -481,6 +482,7 @@ export default function SwimPage() {
 
     setPlanGenerating(true);
     setGenerationMeta(null);
+    const shuffleSeed = defaultShuffleSeed();
     try {
       const tpl = await fetchSwimBlockTemplates();
       let plan =
@@ -489,12 +491,14 @@ export default function SwimPage() {
           : buildWorkoutFromCatalog(tpl.data, selectedGoals, vol, {
               inventory: filterGear ? inventory : null,
               prependWarmupNote: coachNote,
+              shuffleSeed,
             });
       let source: "catalog" | "heuristic" = "catalog";
       if (!plan || plan.length === 0) {
         plan = generateSwimWorkoutPlan(vol, focus, {
           mediumPlanCoachNote: coachNote,
           inventoryIds,
+          shuffleSeed,
         });
         source = "heuristic";
       }
@@ -710,7 +714,8 @@ export default function SwimPage() {
               <p className="text-xs text-muted-foreground">
                 Задайте целевой метраж и фокус — серии заполнятся в форме ниже (правки вручную всегда можно).
                 Каталог из Supabase имеет приоритет; иначе включается генератор с расширенными примерами и учётом
-                среднесрочного плана и инвентаря.
+                среднесрочного плана и инвентаря. Это не вызов LLM: каждое нажатие подмешивает случайный выбор
+                из подходящих блоков. Свежие идеи из сети — только через чат агента (инструмент web_search, если включён Tavily).
               </p>
               <details className="mt-2 rounded-lg border border-border/50 bg-muted/15 text-xs">
                 <summary className="cursor-pointer px-3 py-2 font-medium text-foreground">

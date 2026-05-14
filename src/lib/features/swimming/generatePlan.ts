@@ -12,6 +12,12 @@
 
 import { roundSwimMeters } from "./distance";
 import { swimEquipmentLabel } from "./swimEquipment";
+import {
+  createSeededRng,
+  defaultShuffleSeed,
+  pickVariantAvoidingRecent,
+  type SeededRng,
+} from "./swimPlanRng";
 
 export type SwimPlanSeries = { distance: number; description: string };
 
@@ -20,6 +26,11 @@ export type SwimPlanGenerationOptions = {
   mediumPlanCoachNote?: string;
   /** id снаряжения из профиля — подсказки в описаниях основной части */
   inventoryIds?: string[];
+  /**
+   * Зерно для случайного выбора блоков (новое на каждое нажатие в UI).
+   * Без него при тех же объёме и фокусе повторяется один и тот же набор.
+   */
+  shuffleSeed?: number;
 };
 
 function detectKind(
@@ -50,6 +61,10 @@ function withGear(desc: string, ids: string[] | undefined): string {
 const PYRAMID_400 =
   "Горка 25–50–75–100–75–50–25 вс\n" +
   "через 25 м в дорожке (или старт по готовности — как у вас принято)";
+
+const PYRAMID_400_ALT =
+  "400 вс «треугольник»: 100 + 75 + 50 + 25 + 50 + 75 + 100 вс\n" +
+  "между кусками отдых до спокойного дыхания, без гонки на стенке";
 
 const FOUR_300 =
   "4×300 вс\n" +
@@ -173,15 +188,18 @@ function mergeSmallRemainder(
 
 function allocateMixedMain(
   main: number,
-  inventoryIds?: string[]
+  inventoryIds: string[] | undefined,
+  rng: SeededRng
 ): SwimPlanSeries[] {
   const out: SwimPlanSeries[] = [];
   let rem = main;
+  const recent500: number[] = [];
 
   if (rem >= 400) {
+    const pyr = rng.next() < 0.5 ? PYRAMID_400 : PYRAMID_400_ALT;
     out.push({
       distance: 400,
-      description: withGear(PYRAMID_400, inventoryIds),
+      description: withGear(pyr, inventoryIds),
     });
     rem -= 400;
   }
@@ -202,15 +220,18 @@ function allocateMixedMain(
     rem -= 600;
   }
 
-  let rot500 = 0;
   while (rem >= 500) {
-    const raw =
-      VARIANT_500[rot500 % VARIANT_500.length] ?? VARIANT_500[0] ?? "";
+    const { value, idx } = pickVariantAvoidingRecent(
+      VARIANT_500,
+      rng,
+      recent500
+    );
+    recent500.push(idx);
+    if (recent500.length > 2) recent500.shift();
     out.push({
       distance: 500,
-      description: withGear(raw, inventoryIds),
+      description: withGear(value, inventoryIds),
     });
-    rot500++;
     rem -= 500;
   }
 
@@ -250,21 +271,26 @@ function allocateMixedMain(
 function allocateMainBlocks(
   main: number,
   kind: ReturnType<typeof detectKind>,
-  inventoryIds?: string[]
+  inventoryIds: string[] | undefined,
+  rng: SeededRng
 ): SwimPlanSeries[] {
   const out: SwimPlanSeries[] = [];
   let r = main;
+  const recentR: number[] = [];
+  const recentT: number[] = [];
+  const recentS: number[] = [];
+  const recentE: number[] = [];
 
   if (kind === "recovery") {
-    let ri = 0;
     while (r >= 400) {
-      out.push({
-        distance: 400,
-        description:
-          RECOVERY_400_VARIANTS[ri % RECOVERY_400_VARIANTS.length] ??
-          RECOVERY_400_VARIANTS[0],
-      });
-      ri++;
+      const { value, idx } = pickVariantAvoidingRecent(
+        RECOVERY_400_VARIANTS,
+        rng,
+        recentR
+      );
+      recentR.push(idx);
+      if (recentR.length > 2) recentR.shift();
+      out.push({ distance: 400, description: value });
       r -= 400;
     }
     if (r >= 200) {
@@ -285,12 +311,15 @@ function allocateMainBlocks(
   }
 
   if (kind === "technique") {
-    let ti = 0;
     while (r >= 300) {
-      const raw =
-        TECH_300_VARIANTS[ti % TECH_300_VARIANTS.length] ?? TECH_300_VARIANTS[0];
-      out.push({ distance: 300, description: withGear(raw, inventoryIds) });
-      ti++;
+      const { value, idx } = pickVariantAvoidingRecent(
+        TECH_300_VARIANTS,
+        rng,
+        recentT
+      );
+      recentT.push(idx);
+      if (recentT.length > 2) recentT.shift();
+      out.push({ distance: 300, description: withGear(value, inventoryIds) });
       r -= 300;
     }
     if (r >= 100) {
@@ -317,13 +346,15 @@ function allocateMainBlocks(
   }
 
   if (kind === "sprint") {
-    let si = 0;
     while (r >= 300) {
-      const raw =
-        SPRINT_300_VARIANTS[si % SPRINT_300_VARIANTS.length] ??
-        SPRINT_300_VARIANTS[0];
-      out.push({ distance: 300, description: withGear(raw, inventoryIds) });
-      si++;
+      const { value, idx } = pickVariantAvoidingRecent(
+        SPRINT_300_VARIANTS,
+        rng,
+        recentS
+      );
+      recentS.push(idx);
+      if (recentS.length > 2) recentS.shift();
+      out.push({ distance: 300, description: withGear(value, inventoryIds) });
       r -= 300;
     }
     if (r >= 100) {
@@ -347,13 +378,15 @@ function allocateMainBlocks(
   }
 
   if (kind === "endurance") {
-    let ei = 0;
     while (r >= 800) {
-      const raw =
-        ENDURANCE_800_VARIANTS[ei % ENDURANCE_800_VARIANTS.length] ??
-        ENDURANCE_800_VARIANTS[0];
-      out.push({ distance: 800, description: withGear(raw, inventoryIds) });
-      ei++;
+      const { value, idx } = pickVariantAvoidingRecent(
+        ENDURANCE_800_VARIANTS,
+        rng,
+        recentE
+      );
+      recentE.push(idx);
+      if (recentE.length > 2) recentE.shift();
+      out.push({ distance: 800, description: withGear(value, inventoryIds) });
       r -= 800;
     }
     if (r >= 400) {
@@ -386,7 +419,7 @@ function allocateMainBlocks(
     return out;
   }
 
-  return allocateMixedMain(main, inventoryIds);
+  return allocateMixedMain(main, inventoryIds, rng);
 }
 
 export function generateSwimWorkoutPlan(
@@ -407,6 +440,12 @@ export function generateSwimWorkoutPlan(
   const total = roundSwimMeters(Math.min(12000, raw));
   const kind = detectKind(focusRaw.trim() || "смешанная");
   const inv = options?.inventoryIds?.filter(Boolean);
+
+  const seedMix =
+    options?.shuffleSeed != null
+      ? (options.shuffleSeed ^ 0x2468ace1) >>> 0
+      : (defaultShuffleSeed() ^ 0x2468ace1) >>> 0;
+  const rng = createSeededRng(seedMix);
 
   let warmPct = 0.14;
   let coolPct = 0.08;
@@ -443,7 +482,7 @@ export function generateSwimWorkoutPlan(
     description: warmDesc,
   });
 
-  const mainBlocks = allocateMainBlocks(main, kind, inv);
+  const mainBlocks = allocateMainBlocks(main, kind, inv, rng);
   const mainSum = mainBlocks.reduce((s, b) => s + b.distance, 0);
   const drift = main - mainSum;
   if (drift !== 0 && mainBlocks.length > 0) {

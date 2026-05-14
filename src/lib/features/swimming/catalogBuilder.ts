@@ -6,6 +6,7 @@ import {
   phasePercentsForGoals,
 } from "./swimGoals";
 import { templateFitsInventory } from "./swimEquipment";
+import { createSeededRng, defaultShuffleSeed, type SeededRng } from "./swimPlanRng";
 
 function templateMatchesGoals(
   t: SwimBlockTemplateRow,
@@ -61,7 +62,8 @@ function fillPhase(
   pool: SwimBlockTemplateRow[],
   goals: SwimGoalCode[],
   inventory: string[] | null,
-  lastSlug: { current: string | null }
+  lastSlug: { current: string | null },
+  rng: SeededRng
 ): SwimPlanSeries[] | null {
   const rows = pool.filter(
     (t) =>
@@ -93,7 +95,11 @@ function fillPhase(
     if (filtered.length === 0) filtered = scored;
 
     filtered.sort((a, b) => b.d - a.d || a.t.slug.localeCompare(b.t.slug));
-    const { t, d } = filtered[0]!;
+    const topK = Math.min(6, filtered.length);
+    const slice = filtered.slice(0, topK);
+    const noRepeat = slice.filter((x) => x.t.slug !== lastSlug.current);
+    const pickFrom = noRepeat.length > 0 ? noRepeat : slice;
+    const { t, d } = pickFrom[rng.nextInt(pickFrom.length)]!;
     out.push({ distance: d, description: t.body_text });
     lastSlug.current = t.slug;
     remaining -= d;
@@ -115,6 +121,11 @@ export type BuildCatalogOptions = {
   inventory?: string[] | null;
   /** Врезка в первый блок разминки из каталога (среднесрочный план и т.п.) */
   prependWarmupNote?: string;
+  /**
+   * Зерно случайности при выборе блоков из каталога (на каждое нажатие «Сгенерировать» — новое).
+   * Без него выбор жёстко детерминирован (всегда «лучший» по метражу шаблон).
+   */
+  shuffleSeed?: number;
 };
 
 export function buildWorkoutFromCatalog(
@@ -141,12 +152,17 @@ export function buildWorkoutFromCatalog(
   }
 
   const lastSlug = { current: null as string | null };
+  const seed =
+    options?.shuffleSeed != null
+      ? (options.shuffleSeed ^ 0x13579bdf) >>> 0
+      : (defaultShuffleSeed() ^ 0x13579bdf) >>> 0;
+  const rng = createSeededRng(seed);
 
-  const w = fillPhase(warm, "warmup", templates, goals, inventory, lastSlug);
+  const w = fillPhase(warm, "warmup", templates, goals, inventory, lastSlug, rng);
   if (w === null) return null;
-  const m = fillPhase(main, "main", templates, goals, inventory, lastSlug);
+  const m = fillPhase(main, "main", templates, goals, inventory, lastSlug, rng);
   if (m === null) return null;
-  const c = fillPhase(cool, "cooldown", templates, goals, inventory, lastSlug);
+  const c = fillPhase(cool, "cooldown", templates, goals, inventory, lastSlug, rng);
   if (c === null) return null;
 
   const out = [...w, ...m, ...c];
