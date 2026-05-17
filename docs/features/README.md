@@ -46,7 +46,7 @@
 
 **Где смотреть подробности работы:** [`workout-tracker/logic.md`](workout-tracker/logic.md).
 
-**Huawei Health (Phase 2, по шагам):** [`workout-tracker/huawei-health-integration.md`](workout-tracker/huawei-health-integration.md) — OAuth, схема БД, дедуп импорта, линк с журналом без дублей, чеклист реализации.
+**Huawei Health (Phase 2):** [спецификация](workout-tracker/huawei-health-integration.md) · [runbook](workout-tracker/huawei-health-runbook.md) · [деплой на свой сервер](../deploy/own-server.md)
 
 ---
 

@@ -1,11 +1,11 @@
 import { supabase } from "@/lib/db/supabase";
-import type { SwimBlockTemplateRow } from "@/lib/features/swimming/catalogBuilder";
+import type { SwimCatalogBlock } from "@/lib/features/swimming/buildWorkoutFromCatalog";
 
 /**
  * Активные шаблоны: системные (user_id null) и при появлении — пользовательские.
  */
 export async function fetchSwimBlockTemplates(): Promise<
-  { data: SwimBlockTemplateRow[] } | { error: string }
+  { data: SwimCatalogBlock[] } | { error: string }
 > {
   const { data, error } = await supabase
     .from("swim_block_template")
@@ -16,6 +16,6 @@ export async function fetchSwimBlockTemplates(): Promise<
 
   if (error) return { error: error.message };
 
-  const rows = (data ?? []) as SwimBlockTemplateRow[];
+  const rows = (data ?? []) as SwimCatalogBlock[];
   return { data: rows };
 }

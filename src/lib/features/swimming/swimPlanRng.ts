@@ -26,6 +26,15 @@ export function defaultShuffleSeed(): number {
   return (Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0;
 }
 
+/** Календарный сид: одинаковые входы в один день дают одинаковую ротацию блоков. */
+export function catalogDateSeed(date = new Date()): number {
+  return (
+    date.getFullYear() * 10_000 +
+    (date.getMonth() + 1) * 100 +
+    date.getDate()
+  ) >>> 0;
+}
+
 /** Выбор элемента массива, избегая последних `avoidRecent` индексов (если возможно). */
 export function pickVariantAvoidingRecent<T>(
   arr: readonly T[],

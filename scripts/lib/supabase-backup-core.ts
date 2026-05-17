@@ -14,11 +14,19 @@ export const BACKUP_TABLE_NAMES = [
   "users",
   "workouts",
   "gym_exercises",
+  "gym_presets",
   "swim_series",
   "swim_block_template",
   "workout_plans",
   "chat_messages",
   "user_context",
+  "expense_accounts",
+  "expense_categories",
+  "expense_transactions",
+  "expense_imports",
+  "integration_oauth_tokens",
+  "device_activity_sessions",
+  "workout_device_links",
 ] as const satisfies readonly (keyof Database["public"]["Tables"])[];
 
 export type BackupTableName = (typeof BACKUP_TABLE_NAMES)[number];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { User, Flame, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
   type ProfileForm,
 } from "@/lib/db/profile";
 import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
+import { HuaweiHealthCard } from "@/components/profile/huawei-health-card";
 
 function toStr(v: number | null): string {
   return v == null ? "" : String(v);
@@ -161,6 +162,10 @@ export default function ProfilePage() {
           Не удалось загрузить профиль: {loadError}
         </p>
       )}
+
+      <Suspense fallback={null}>
+        <HuaweiHealthCard userId={userId} />
+      </Suspense>
 
       <Card>
         <CardHeader className="pb-3">

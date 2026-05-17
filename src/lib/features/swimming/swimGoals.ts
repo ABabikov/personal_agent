@@ -37,21 +37,22 @@ export const SWIM_GOALS: readonly {
   },
 ] as const;
 
+/** Доли фаз в пределах ТЗ: разминка 20–30%, основа 50–65%, заминка 15–20%. */
 export function phasePercentsForGoal(goal: SwimGoalCode): {
   warmPct: number;
   coolPct: number;
 } {
   switch (goal) {
-    case "speed":
-      return { warmPct: 0.18, coolPct: 0.1 };
     case "technique":
-      return { warmPct: 0.2, coolPct: 0.08 };
-    case "recovery":
-      return { warmPct: 0.22, coolPct: 0.12 };
+      return { warmPct: 0.25, coolPct: 0.15 };
+    case "speed":
+      return { warmPct: 0.25, coolPct: 0.2 };
     case "aerobic":
-      return { warmPct: 0.14, coolPct: 0.08 };
+      return { warmPct: 0.2, coolPct: 0.2 };
+    case "recovery":
+      return { warmPct: 0.3, coolPct: 0.2 };
     default:
-      return { warmPct: 0.14, coolPct: 0.08 };
+      return { warmPct: 0.25, coolPct: 0.2 };
   }
 }
 

@@ -462,6 +462,111 @@ export interface Database {
           },
         ];
       };
+      integration_oauth_tokens: {
+        Row: {
+          id: string;
+          user_id: string;
+          provider: string;
+          access_token: string | null;
+          refresh_token: string;
+          expires_at: string | null;
+          scope: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["integration_oauth_tokens"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          provider?: string;
+          access_token?: string | null;
+          expires_at?: string | null;
+          scope?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["integration_oauth_tokens"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "integration_oauth_tokens_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      device_activity_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          source: "huawei";
+          external_id: string;
+          started_at: string;
+          ended_at: string | null;
+          activity_type_raw: string | null;
+          activity_type_mapped: "gym" | "swim" | "other" | null;
+          calories_device: number | null;
+          avg_heart_rate: number | null;
+          duration_seconds: number | null;
+          payload: Record<string, unknown> | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["device_activity_sessions"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          ended_at?: string | null;
+          activity_type_raw?: string | null;
+          activity_type_mapped?: "gym" | "swim" | "other" | null;
+          calories_device?: number | null;
+          avg_heart_rate?: number | null;
+          duration_seconds?: number | null;
+          payload?: Record<string, unknown> | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["device_activity_sessions"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "device_activity_sessions_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      workout_device_links: {
+        Row: {
+          id: string;
+          workout_id: string;
+          device_session_id: string;
+          match_method: "auto" | "manual";
+          confidence: number | null;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["workout_device_links"]["Row"],
+          "id" | "created_at"
+        > & {
+          confidence?: number | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["workout_device_links"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "workout_device_links_workout_id_fkey";
+            columns: ["workout_id"];
+            isOneToOne: false;
+            referencedRelation: "workouts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "workout_device_links_device_session_id_fkey";
+            columns: ["device_session_id"];
+            isOneToOne: false;
+            referencedRelation: "device_activity_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

@@ -2,6 +2,9 @@
 
 Сводный документ для реализации **Phase 2** (часть про Huawei). Выполнять **по порядку шагов**; предыдущий шаг считается закрытым, если чекбокс можно честно отметить.
 
+**Практический runbook** (консоль, заявка, env, деплой, политики): [huawei-health-runbook.md](./huawei-health-runbook.md)  
+**Деплой на свой сервер** (вместо Vercel): [../../deploy/own-server.md](../../deploy/own-server.md)
+
 Связанные файлы: [`plan.md`](plan.md) (фазы фичи), [`status.md`](status.md) (прогресс), [`../../../architecture.md`](../../../architecture.md) (dual-mode: UI и агент → общий `lib/`).
 
 ---

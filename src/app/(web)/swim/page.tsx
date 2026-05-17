@@ -14,7 +14,7 @@ import { TotalCard } from "@/components/workout/total-card";
 import { totalDistance } from "@/lib/features/swimming/distance";
 import { inferBreakdownForSeries } from "@/lib/features/swimming/inferBreakdown";
 import { generateSwimWorkoutPlan } from "@/lib/features/swimming/generatePlan";
-import { buildWorkoutFromCatalog } from "@/lib/features/swimming/catalogBuilder";
+import { buildWorkoutFromCatalog } from "@/lib/features/swimming/buildWorkoutFromCatalog";
 import {
   SWIM_GENERATION_COACH_PROMPT_BLOCK,
   adjustTargetVolumeForBias,
@@ -488,13 +488,12 @@ export default function SwimPage() {
       let plan =
         "error" in tpl
           ? null
-          : buildWorkoutFromCatalog(tpl.data, selectedGoals, vol, {
+          : buildWorkoutFromCatalog(selectedGoals, vol, tpl.data, {
               inventory: filterGear ? inventory : null,
               prependWarmupNote: coachNote,
-              shuffleSeed,
             });
       let source: "catalog" | "heuristic" = "catalog";
-      if (!plan || plan.length === 0) {
+      if (!plan || plan.length < 2) {
         plan = generateSwimWorkoutPlan(vol, focus, {
           mediumPlanCoachNote: coachNote,
           inventoryIds,
@@ -519,7 +518,9 @@ export default function SwimPage() {
         [
           `Источник: ${source === "catalog" ? "каталог блоков Supabase" : "встроенный генератор (каталог не собрал объём)"}.`,
           `Поле «Целевой объём»: ${requestedVol} м → с учётом среднесрочного плана: ${vol} м (${biasLabel}).`,
-          "Состав серий каждый раз заново из случайного выбора подходящих шаблонов (не LLM).",
+          source === "catalog"
+            ? "Каталог: ротация шаблонов детерминирована календарным днём (повторные прогоны в тот же день — тот же набор)."
+            : "Состав серий из встроенного генератора (каталог не собрал объём или блоков < 2).",
           coachNote,
         ].join("\n\n")
       );
