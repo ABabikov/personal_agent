@@ -11,6 +11,7 @@ import {
   createSeededRng,
   type SeededRng,
 } from "./swimPlanRng";
+import { adaptSwimSeriesDescription } from "./swimSeriesText";
 
 /** Поля шаблона, нужные сборщику (совпадают с select в fetchSwimBlockTemplates). */
 export type SwimCatalogBlock = {
@@ -175,7 +176,11 @@ function fillPhase(
 
     out.push({
       distance: d,
-      description: t.body_text,
+      description: adaptSwimSeriesDescription(
+        t.body_text,
+        d,
+        t.nominal_distance_m
+      ),
       phase,
     });
     lastSlug.current = t.slug;
