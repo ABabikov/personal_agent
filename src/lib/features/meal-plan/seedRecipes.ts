@@ -285,7 +285,3 @@ export const SEED_RECIPES: Recipe[] = [
     ],
   },
 ];
-
-export function recipeById(id: string): Recipe | undefined {
-  return SEED_RECIPES.find((r) => r.id === id);
-}

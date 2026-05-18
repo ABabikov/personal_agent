@@ -42,6 +42,8 @@
 | Графики прогресса (Recharts)                                    | Not Started | -          |
 | TMA layout (`(tma)/`) — заполнение страниц                      | Not Started | -          |
 | Чат `/chat` с агентом (claude-sonnet-4 + 20 тулов + память)      | Done (вынесено в фичу agent-core) | 2026-05-11 |
+| Редактирование и удаление тренировок (`?edit=`, soft delete)     | Done        | 2026-05-17 — см. [edit-delete.md](edit-delete.md) |
+| Черновик `active` / завершение `completed` (возврат на страницу) | Done        | 2026-05-17 — миграция `013_workout_status.sql` |
 | Huawei Health OAuth + sync                                      | Not Started | см. [huawei-health-integration.md](huawei-health-integration.md) — выполнять по шагам 1→7 |
 | Workout plans UI (DB-таблица готова)                            | Not Started | -          |
 | Агентский луп с tools                                           | Not Started | -          |

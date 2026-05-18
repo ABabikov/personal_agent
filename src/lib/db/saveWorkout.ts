@@ -79,6 +79,7 @@ export async function saveGymWorkoutToSupabase(params: {
       total_distance: null,
       calories_estimated: caloriesEstimated,
       notes: notesTrim || null,
+      status: "completed",
     })
     .select("id")
     .single();
@@ -139,6 +140,7 @@ export async function saveSwimWorkoutToSupabase(params: {
       total_distance,
       calories_estimated: null,
       notes: notesTrim || null,
+      status: "completed",
     })
     .select("id")
     .single();

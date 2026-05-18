@@ -2,6 +2,7 @@ import type { MealPlanTargets, PlanLine, MealSlot } from "./types";
 import { DEFAULT_TARGETS, STORAGE_PLAN, STORAGE_STAPLES, STORAGE_TARGETS } from "./types";
 import { buildMealPlanPayload, type MealPlanAgentPayload } from "./mealPlanMerge";
 import { loadRecipeDiscoveryState, saveRecipePreferences, saveRecipeSources, toAgentRecipeDiscovery } from "./recipeDiscoveryStorage";
+import { loadWeekPlan, saveWeekPlan, type WeekPlan } from "./weekPlan";
 
 const DEFAULT_STAPLES = `яйца
 молоко
@@ -101,6 +102,14 @@ export function savePlan(plan: PlanLine[]): void {
   } catch {
     /* ignore */
   }
+}
+
+export function loadWeekMealPlan(): WeekPlan {
+  return loadWeekPlan();
+}
+
+export function saveWeekMealPlan(plan: WeekPlan): void {
+  saveWeekPlan(plan);
 }
 
 function clampNum(v: unknown, fallback: number, min: number, max: number): number {

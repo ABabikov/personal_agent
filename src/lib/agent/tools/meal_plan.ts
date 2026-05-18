@@ -7,7 +7,7 @@
 import type { AgentTool } from "@/lib/agent/tools/types";
 import type { MealPlanAgentPayload } from "@/lib/features/meal-plan/mealPlanMerge";
 import { mergeMealPlanPayload } from "@/lib/features/meal-plan/mealPlanMerge";
-import { recipeById, SEED_RECIPES } from "@/lib/features/meal-plan/seedRecipes";
+import { recipeById, SEED_RECIPES } from "@/lib/features/meal-plan/recipes";
 
 const RECIPE_IDS = SEED_RECIPES.map((r) => r.id).join(", ");
 

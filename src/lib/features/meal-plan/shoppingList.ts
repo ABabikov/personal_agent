@@ -1,5 +1,5 @@
 import type { PlanLine, RecipeIngredient } from "./types";
-import { recipeById } from "./seedRecipes";
+import { recipeById } from "./recipes";
 import { planTotalsFromLines } from "./mealPlanMerge";
 
 export type AggregatedLine = RecipeIngredient & {

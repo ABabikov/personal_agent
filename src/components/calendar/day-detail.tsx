@@ -1,6 +1,7 @@
 "use client";
 
-import { Dumbbell, Waves, Flame } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Dumbbell, Waves, Flame } from "lucide-react";
 import type { WorkoutRow } from "@/lib/db/listWorkouts";
 import type {
   GymExerciseRow,
@@ -55,10 +56,17 @@ export function DayDetail({
 
       <div className="space-y-3">
         {day.map((w) => {
+          const editHref =
+            w.type === "gym" ? `/gym?edit=${w.id}` : `/swim?edit=${w.id}`;
+
           if (w.type === "gym") {
             const rows = gymMap.get(w.id) ?? [];
             return (
-              <div key={w.id} className="rounded-lg border border-border bg-background/40 p-3">
+              <Link
+                key={w.id}
+                href={editHref}
+                className="block rounded-lg border border-border bg-background/40 p-3 transition-colors hover:bg-accent/50 active:scale-[0.99]"
+              >
                 <div className="mb-2 flex items-center gap-2">
                   <div className="flex size-7 items-center justify-center rounded-md bg-gym/15 text-gym">
                     <Dumbbell className="size-3.5" />
@@ -66,14 +74,18 @@ export function DayDetail({
                   <span className="text-sm font-medium">Силовая</span>
                   <div className="ml-auto flex items-center gap-2 text-xs tabular-nums text-muted-foreground">
                     {w.total_tonnage != null && (
-                      <span>{Math.round(w.total_tonnage).toLocaleString("ru")} кг</span>
+                      <span>
+                        {Math.round(w.total_tonnage).toLocaleString("ru")} кг
+                      </span>
                     )}
                     {w.calories_estimated != null && (
                       <span className="inline-flex items-center gap-0.5 text-primary">
                         <Flame className="size-3" />
-                        {Math.round(w.calories_estimated).toLocaleString("ru")} ккал
+                        {Math.round(w.calories_estimated).toLocaleString("ru")}{" "}
+                        ккал
                       </span>
                     )}
+                    <ChevronRight className="size-3.5 shrink-0 opacity-60" />
                   </div>
                 </div>
                 {w.body_weight != null && (
@@ -83,8 +95,13 @@ export function DayDetail({
                 )}
                 <ul className="space-y-1.5 text-xs">
                   {rows.map((ex) => (
-                    <li key={ex.id} className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-medium text-foreground">{ex.exercise_name}</span>
+                    <li
+                      key={ex.id}
+                      className="flex flex-wrap items-baseline gap-x-2"
+                    >
+                      <span className="font-medium text-foreground">
+                        {ex.exercise_name}
+                      </span>
                       <span className="text-muted-foreground">
                         {ex.sets
                           .map((s) => `${s.weight}×${s.reps}`)
@@ -101,13 +118,17 @@ export function DayDetail({
                     {w.notes}
                   </p>
                 )}
-              </div>
+              </Link>
             );
           }
           if (w.type === "swim") {
             const rows = swimMap.get(w.id) ?? [];
             return (
-              <div key={w.id} className="rounded-lg border border-border bg-background/40 p-3">
+              <Link
+                key={w.id}
+                href={editHref}
+                className="block rounded-lg border border-border bg-background/40 p-3 transition-colors hover:bg-accent/50 active:scale-[0.99]"
+              >
                 <div className="mb-2 flex items-center gap-2">
                   <div className="flex size-7 items-center justify-center rounded-md bg-swim/15 text-swim">
                     <Waves className="size-3.5" />
@@ -120,18 +141,25 @@ export function DayDetail({
                     {w.calories_estimated != null && (
                       <span className="inline-flex items-center gap-0.5 text-primary">
                         <Flame className="size-3" />
-                        {Math.round(w.calories_estimated).toLocaleString("ru")} ккал
+                        {Math.round(w.calories_estimated).toLocaleString("ru")}{" "}
+                        ккал
                       </span>
                     )}
+                    <ChevronRight className="size-3.5 shrink-0 opacity-60" />
                   </div>
                 </div>
                 <ul className="space-y-1.5 text-xs">
                   {rows.map((s) => (
-                    <li key={s.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <li
+                      key={s.id}
+                      className="flex flex-wrap items-baseline gap-x-2"
+                    >
                       <span className="font-medium tabular-nums text-foreground">
                         {s.distance} м
                       </span>
-                      <span className="text-muted-foreground">{s.description}</span>
+                      <span className="text-muted-foreground">
+                        {s.description}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -140,7 +168,7 @@ export function DayDetail({
                     {w.notes}
                   </p>
                 )}
-              </div>
+              </Link>
             );
           }
           return null;

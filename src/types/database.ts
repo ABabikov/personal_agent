@@ -65,14 +65,16 @@ export interface Database {
           total_distance: number | null;
           calories_estimated: number | null;
           notes: string | null;
+          status: "active" | "completed";
           created_at: string;
           deleted_at: string | null;
           deleted_reason: string | null;
         };
         Insert: Omit<
           Database["public"]["Tables"]["workouts"]["Row"],
-          "id" | "created_at" | "deleted_at" | "deleted_reason"
+          "id" | "created_at" | "deleted_at" | "deleted_reason" | "status"
         > & {
+          status?: "active" | "completed";
           deleted_at?: string | null;
           deleted_reason?: string | null;
         };

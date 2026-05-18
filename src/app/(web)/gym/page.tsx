@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Dumbbell, Sparkles, RotateCcw, Flame } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Plus, Dumbbell, Sparkles, RotateCcw, Flame, Trash2 } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +22,19 @@ import {
 import { gymWorkoutToExerciseInputs } from "@/lib/features/workouts/gymFormFromSeed";
 import type { ParsedGymWorkout } from "@/lib/features/workouts/csvImport";
 import type { GymSet } from "@/types/database";
-import { saveGymWorkoutToSupabase } from "@/lib/db/saveWorkout";
+import {
+  completeWorkout,
+  fetchActiveGymWorkout,
+  fetchGymWorkoutById,
+  softDeleteWorkout,
+  updateGymWorkoutToSupabase,
+  upsertActiveGymWorkout,
+  type LoadedGymWorkout,
+} from "@/lib/db/workoutMutations";
+import {
+  confirmEditCompletedWorkout,
+  WORKOUT_STATUS_LABEL_RU,
+} from "@/lib/features/workouts/workoutStatus";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import {
   fetchGymAutofillTemplateFromDb,
@@ -70,34 +84,63 @@ function todayString() {
   return new Date().toISOString().split("T")[0];
 }
 
+type GymSessionStatus = "new" | "active" | "completed";
+
 function GymWorkoutEditor({
+  sessionStatus,
+  workoutId,
   date,
   onDateChange,
   templateWorkout,
+  initialParsed,
+  initialNotes = "",
   profileWeightKg,
   onSaveSuccess,
+  onWorkoutId,
+  onCompleted,
+  onDeleted,
 }: {
+  sessionStatus: GymSessionStatus;
+  workoutId?: string;
   date: string;
   onDateChange: (iso: string) => void;
   templateWorkout: ParsedGymWorkout | null;
+  initialParsed?: ParsedGymWorkout | null;
+  initialNotes?: string;
   profileWeightKg: number | null;
   onSaveSuccess?: () => void;
+  onWorkoutId?: (id: string) => void;
+  onCompleted?: () => void;
+  onDeleted?: () => void;
 }) {
-  const [bodyWeight, setBodyWeight] = useState(() =>
-    templateWorkout?.bodyWeight != null
-      ? String(templateWorkout.bodyWeight)
-      : ""
-  );
-  const [exercises, setExercises] = useState<ExerciseInput[]>(() =>
-    templateWorkout
-      ? gymWorkoutToExerciseInputs(templateWorkout, true)
-      : [newExercise()]
-  );
-  const [notes, setNotes] = useState("");
+  const isActive = sessionStatus === "active";
+  const isCompleted = sessionStatus === "completed";
+  const isNew = sessionStatus === "new";
+  const [bodyWeight, setBodyWeight] = useState(() => {
+    if (initialParsed?.bodyWeight != null) return String(initialParsed.bodyWeight);
+    if (isNew && templateWorkout?.bodyWeight != null) {
+      return String(templateWorkout.bodyWeight);
+    }
+    return "";
+  });
+  const [exercises, setExercises] = useState<ExerciseInput[]>(() => {
+    if (initialParsed) {
+      return gymWorkoutToExerciseInputs(initialParsed, false);
+    }
+    if (isNew && templateWorkout) {
+      return gymWorkoutToExerciseInputs(templateWorkout, true);
+    }
+    return [newExercise()];
+  });
+  const [notes, setNotes] = useState(initialNotes);
   const [durationStr, setDurationStr] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
     "idle"
   );
+  const [completeState, setCompleteState] = useState<"idle" | "completing">(
+    "idle"
+  );
+  const [deleteState, setDeleteState] = useState<"idle" | "deleting">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   function applyFromLast(withProgression: boolean) {
     if (!templateWorkout) return;
@@ -198,14 +241,33 @@ function GymWorkoutEditor({
         return row.name.trim().length > 0 && row.sets.length > 0;
       });
 
-    const result = await saveGymWorkoutToSupabase({
+    const payload = {
       date,
       bodyWeightStr: bodyWeight,
       exercises: exercisesPayload,
       notes,
       profileWeightKg,
       durationMinOverride: parsedDuration,
-    });
+    };
+
+    let result:
+      | { ok: true; workoutId?: string }
+      | { error: string };
+
+    if (isCompleted && workoutId) {
+      result = await updateGymWorkoutToSupabase({
+        workoutId,
+        ...payload,
+      });
+    } else {
+      result = await upsertActiveGymWorkout({
+        workoutId,
+        ...payload,
+      });
+      if ("ok" in result && result.workoutId && !workoutId) {
+        onWorkoutId?.(result.workoutId);
+      }
+    }
 
     if ("error" in result) {
       setSaveError(result.error);
@@ -218,9 +280,92 @@ function GymWorkoutEditor({
     onSaveSuccess?.();
   }
 
+  async function handleComplete() {
+    if (!isActive && !isNew) return;
+    setSaveError(null);
+    setCompleteState("completing");
+
+    const exercisesPayload = exercises
+      .map((ex) => {
+        const summary = summaries.find((s) => s.id === ex.id);
+        if (!summary) return null;
+        return { name: ex.name, sets: summary.sets };
+      })
+      .filter((row): row is { name: string; sets: GymSet[] } => {
+        if (!row) return false;
+        return row.name.trim().length > 0 && row.sets.length > 0;
+      });
+
+    const saved = await upsertActiveGymWorkout({
+      workoutId,
+      date,
+      bodyWeightStr: bodyWeight,
+      exercises: exercisesPayload,
+      notes,
+      profileWeightKg,
+      durationMinOverride: parsedDuration,
+    });
+
+    if ("error" in saved) {
+      setSaveError(saved.error);
+      setCompleteState("idle");
+      return;
+    }
+
+    const id = saved.workoutId;
+    if (!workoutId) onWorkoutId?.(id);
+
+    const done = await completeWorkout(id);
+    setCompleteState("idle");
+    if ("error" in done) {
+      setSaveError(done.error);
+      return;
+    }
+    onCompleted?.();
+  }
+
+  async function handleDelete() {
+    if (!workoutId) return;
+    const msg = isActive
+      ? "Отменить активную тренировку? Черновик будет удалён."
+      : "Удалить эту тренировку? Она исчезнет из календаря и сводок. В базе останется скрытой записью.";
+    if (!confirm(msg)) return;
+    if (isCompleted && !confirmEditCompletedWorkout()) return;
+
+    setSaveError(null);
+    setDeleteState("deleting");
+    const result = await softDeleteWorkout(workoutId);
+    setDeleteState("idle");
+    if ("error" in result) {
+      setSaveError(result.error);
+      return;
+    }
+    onDeleted?.();
+  }
+
+  const busy =
+    saveState === "saving" ||
+    deleteState === "deleting" ||
+    completeState === "completing";
+
   return (
     <div className="space-y-4">
-      {templateWorkout && (
+      {isActive && (
+        <Card className="border-gym/30 bg-gym/5">
+          <CardContent className="pt-3 pb-3">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {WORKOUT_STATUS_LABEL_RU.active}
+              </span>
+              {" — "}
+              сохраняйте черновик по ходу. После тренировки нажмите «Завершить» —
+              тогда запись попадёт в календарь и сводки.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isNew && templateWorkout && (
         <div className="flex gap-2">
           <Button
             variant="secondary"
@@ -402,24 +547,74 @@ function GymWorkoutEditor({
         onClick={handleSave}
         className="w-full bg-gym hover:bg-gym/90 text-gym-foreground"
         size="lg"
-        disabled={saveState === "saving"}
+        disabled={busy}
       >
         {saveState === "saving"
           ? "Сохранение..."
           : saveState === "saved"
-            ? "Сохранено"
-            : "Сохранить тренировку"}
+            ? "Черновик сохранён"
+            : isCompleted
+              ? "Сохранить изменения"
+              : "Сохранить черновик"}
       </Button>
+
+      {(isActive || isNew) && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          className="w-full"
+          disabled={busy}
+          onClick={() => void handleComplete()}
+        >
+          {completeState === "completing"
+            ? "Завершение…"
+            : "Завершить тренировку"}
+        </Button>
+      )}
+
+      {workoutId && (
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
+          disabled={busy}
+          onClick={() => void handleDelete()}
+        >
+          <Trash2 className="size-4" />
+          {deleteState === "deleting"
+            ? "Удаление…"
+            : isActive
+              ? "Отменить черновик"
+              : "Удалить тренировку"}
+        </Button>
+      )}
     </div>
   );
 }
 
 type FillSource = "history" | "1" | "2" | "3";
 
-export default function GymPage() {
+function GymPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit")?.trim() || null;
+
   useRegisterPageChatContext(
-    "Зал",
-    "Силовая: шаблон из истории по дате или последние записи пн / ср / пт; прогрессия и калории."
+    editId ? "Редактирование силовой" : "Зал",
+    editId
+      ? "Редактирование сохранённой силовой тренировки."
+      : "Силовая: шаблон из истории по дате или последние записи пн / ср / пт; прогрессия и калории."
+  );
+
+  const [editData, setEditData] = useState<LoadedGymWorkout | null>(null);
+  const [editLoadError, setEditLoadError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(Boolean(editId));
+  const [editDate, setEditDate] = useState(todayString);
+  const [editConfirmed, setEditConfirmed] = useState(false);
+  const [activeWorkout, setActiveWorkout] = useState<LoadedGymWorkout | null>(
+    null
   );
 
   const [hydrated, setHydrated] = useState(false);
@@ -484,9 +679,26 @@ export default function GymPage() {
       wed: "error" in wedRes ? null : wedRes.data,
       fri: "error" in friRes ? null : friRes.data,
     });
+    const activeRes = await fetchActiveGymWorkout(user.userId);
+    if ("error" in activeRes) {
+      setActiveWorkout(null);
+    } else {
+      setActiveWorkout(activeRes.data);
+      if (activeRes.data) {
+        setGymDate(activeRes.data.parsed.date);
+      }
+    }
   }, [gymDate]);
 
+  const reloadActiveWorkout = useCallback(async (workoutId: string) => {
+    const user = await getWorkoutUserId();
+    if ("error" in user) return;
+    const res = await fetchGymWorkoutById(user.userId, workoutId);
+    if ("data" in res) setActiveWorkout(res.data);
+  }, []);
+
   useEffect(() => {
+    if (editId) return;
     let cancelled = false;
     (async () => {
       await refreshLast();
@@ -495,7 +707,54 @@ export default function GymPage() {
     return () => {
       cancelled = true;
     };
-  }, [refreshLast]);
+  }, [refreshLast, editId]);
+
+  useEffect(() => {
+    if (!editId) {
+      setEditData(null);
+      setEditLoadError(null);
+      setEditLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setEditLoading(true);
+      setEditLoadError(null);
+      const user = await getWorkoutUserId();
+      if ("error" in user) {
+        if (!cancelled) {
+          setEditLoadError(user.error);
+          setEditLoading(false);
+        }
+        return;
+      }
+      const [workoutRes, profileRes] = await Promise.all([
+        fetchGymWorkoutById(user.userId, editId),
+        loadUserProfile(user.userId),
+      ]);
+      if (cancelled) return;
+      if ("error" in workoutRes) {
+        setEditLoadError(workoutRes.error);
+        setEditData(null);
+      } else {
+        setEditData(workoutRes.data);
+        setEditDate(workoutRes.data.parsed.date);
+      }
+      if ("data" in profileRes && profileRes.data?.weight) {
+        setProfileWeightKg(profileRes.data.weight);
+      }
+      setEditLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
+
+  useEffect(() => {
+    if (editData?.status === "active") {
+      router.replace("/gym");
+    }
+  }, [editData, router]);
 
   const lastParsed = lastTemplate?.parsed ?? null;
   const globalParsed = globalLastTemplate?.parsed ?? null;
@@ -528,6 +787,114 @@ export default function GymPage() {
     fillSource === "history"
       ? null
       : SPLIT_PRESET_WEEKDAY[fillSource as "1" | "2" | "3"];
+
+  if (editId) {
+    const editDateLabel = editData
+      ? new Date(editData.parsed.date + "T12:00:00").toLocaleDateString("ru", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : null;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gym/15">
+              <Dumbbell className="size-5 text-gym" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold truncate">
+                Редактирование силовой
+              </h1>
+              {editDateLabel && (
+                <p className="text-xs text-muted-foreground">{editDateLabel}</p>
+              )}
+            </div>
+          </div>
+          <Link href="/" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            На главную
+          </Link>
+        </div>
+
+        {editLoading && (
+          <p className="text-sm text-muted-foreground">Загрузка тренировки…</p>
+        )}
+        {editLoadError && (
+          <Card>
+            <CardContent className="pt-4 space-y-2">
+              <p className="text-sm text-destructive" role="alert">
+                {editLoadError}
+              </p>
+              <Link
+                href="/"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Вернуться в календарь
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+        {editData &&
+          editData.status === "completed" &&
+          !editConfirmed &&
+          !editLoading &&
+          !editLoadError && (
+            <Card>
+              <CardContent className="space-y-3 pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Эта тренировка уже{" "}
+                  <span className="font-medium text-foreground">завершена</span>{" "}
+                  и учтена в календаре. Редактирование изменит сводки и графики.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    if (confirmEditCompletedWorkout()) setEditConfirmed(true);
+                  }}
+                >
+                  Редактировать завершённую
+                </Button>
+                <Link
+                  href="/"
+                  className={buttonVariants({
+                    variant: "outline",
+                    size: "sm",
+                    className: "w-full",
+                  })}
+                >
+                  Вернуться в календарь
+                </Link>
+              </CardContent>
+            </Card>
+          )}
+        {editData &&
+          editData.status === "completed" &&
+          editConfirmed &&
+          !editLoading &&
+          !editLoadError && (
+            <GymWorkoutEditor
+              key={editData.workoutId}
+              sessionStatus={
+                editData.status === "completed" ? "completed" : "active"
+              }
+              workoutId={editData.workoutId}
+              date={editDate}
+              onDateChange={setEditDate}
+              templateWorkout={null}
+              initialParsed={editData.parsed}
+              initialNotes={editData.notes}
+              profileWeightKg={profileWeightKg}
+              onSaveSuccess={() => router.push("/")}
+              onDeleted={() => router.push("/")}
+            />
+          )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -714,15 +1081,46 @@ export default function GymPage() {
           </Card>
 
           <GymWorkoutEditor
-            key={gymEditorMountKey}
+            key={activeWorkout?.workoutId ?? gymEditorMountKey}
+            sessionStatus={activeWorkout ? "active" : "new"}
+            workoutId={activeWorkout?.workoutId}
             date={gymDate}
             onDateChange={setGymDate}
-            templateWorkout={templateWorkout}
+            templateWorkout={activeWorkout ? null : templateWorkout}
+            initialParsed={activeWorkout?.parsed}
+            initialNotes={activeWorkout?.notes ?? ""}
             profileWeightKg={profileWeightKg}
-            onSaveSuccess={() => void refreshLast()}
+            onWorkoutId={(id) => void reloadActiveWorkout(id)}
+            onSaveSuccess={() => {
+              if (activeWorkout?.workoutId) {
+                void reloadActiveWorkout(activeWorkout.workoutId);
+              } else {
+                void refreshLast();
+              }
+            }}
+            onCompleted={() => {
+              setActiveWorkout(null);
+              router.push("/");
+            }}
+            onDeleted={() => {
+              setActiveWorkout(null);
+              void refreshLast();
+            }}
           />
         </>
       )}
     </div>
+  );
+}
+
+export default function GymPage() {
+  return (
+    <Suspense
+      fallback={
+        <p className="p-4 text-sm text-muted-foreground">Загрузка…</p>
+      }
+    >
+      <GymPageContent />
+    </Suspense>
   );
 }

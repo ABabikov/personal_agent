@@ -107,7 +107,8 @@ export async function listWorkoutsForDate(
     .select("*")
     .eq("user_id", userId)
     .eq("date", date)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .eq("status", "completed");
   if (type) q = q.eq("type", type);
   const { data, error } = await q.order("created_at", { ascending: true });
   if (error) throw new Error(error.message);

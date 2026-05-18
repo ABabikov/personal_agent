@@ -7,19 +7,34 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { macroDistanceScore, sortRecipesByFit } from "@/lib/features/meal-plan/macrosFit";
-import { SEED_RECIPES, recipeById } from "@/lib/features/meal-plan/seedRecipes";
+import { getAllRecipes, invalidateSavedRecipesCache, isSavedWebRecipe, recipeById } from "@/lib/features/meal-plan/recipes";
+import { upsertSavedRecipeFromSearchHit } from "@/lib/features/meal-plan/savedRecipes";
+import { WeekPlanCard } from "@/components/meal-plan/week-plan-card";
 import { buildShoppingList, planMacrosTotal } from "@/lib/features/meal-plan/shoppingList";
 import {
   loadPlan,
   loadStaples,
   loadTargets,
+  loadWeekMealPlan,
   savePlan,
   saveStaples,
   saveTargets,
+  saveWeekMealPlan,
   createMealSlotId,
   MEAL_PLAN_UPDATED_EVENT,
 } from "@/lib/features/meal-plan/storage";
-import type { MealPlanTargets, PlanLine, MealSlot } from "@/lib/features/meal-plan/types";
+import type { MealPlanTargets, PlanLine, MealSlot, Recipe } from "@/lib/features/meal-plan/types";
+import {
+  addDaysIso,
+  datesForWeek,
+  firstEmptySlotInWeek,
+  formatIsoDate,
+  mondayIsoLocal,
+  setWeekEntry,
+  weekPlanToPlanLines,
+  weekdayLabelRu,
+  type WeekPlan,
+} from "@/lib/features/meal-plan/weekPlan";
 import {
   appendRecipeHistoryEntries,
   createRecipeSourceId,
@@ -116,11 +131,20 @@ export function MealPlanPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
   const [searchHits, setSearchHits] = useState<{ title: string; url: string; snippet: string }[]>([]);
+  const [weekPlan, setWeekPlan] = useState<WeekPlan>(() => ({
+    weekStart: mondayIsoLocal(new Date()),
+    locked: false,
+    entries: [],
+  }));
+  const [savedVersion, setSavedVersion] = useState(0);
+  const [planToast, setPlanToast] = useState<string | null>(null);
+  const [pickSlot, setPickSlot] = useState<{ date: string; slotId: string } | null>(null);
 
   useEffect(() => {
     setStaples(loadStaples());
     setTargets(loadTargets());
     setPlan(loadPlan());
+    setWeekPlan(loadWeekMealPlan());
     setRecipeDisc(loadRecipeDiscoveryState());
     setReady(true);
   }, []);
@@ -131,6 +155,9 @@ export function MealPlanPage() {
       setStaples(loadStaples());
       setTargets(loadTargets());
       setPlan(loadPlan());
+      setWeekPlan(loadWeekMealPlan());
+      invalidateSavedRecipesCache();
+      setSavedVersion((v) => v + 1);
       setRecipeDisc(loadRecipeDiscoveryState());
     };
     window.addEventListener(MEAL_PLAN_UPDATED_EVENT, onRemote);
@@ -151,12 +178,32 @@ export function MealPlanPage() {
     savePlan(next);
   }, []);
 
-  const sortedRecipes = useMemo(() => sortRecipesByFit(SEED_RECIPES, targets), [targets]);
+  const setWeekPlanAndSave = useCallback((next: WeekPlan) => {
+    setWeekPlan(next);
+    saveWeekMealPlan(next);
+  }, []);
 
-  const totals = useMemo(() => planMacrosTotal(plan), [plan]);
+  const showPlanToast = useCallback((msg: string) => {
+    setPlanToast(msg);
+    setTimeout(() => setPlanToast(null), 3200);
+  }, []);
+
+  const allRecipes = useMemo(() => {
+    void savedVersion;
+    return getAllRecipes();
+  }, [savedVersion]);
+
+  const sortedRecipes = useMemo(() => sortRecipesByFit(allRecipes, targets), [allRecipes, targets]);
+  const weekDates = useMemo(() => datesForWeek(weekPlan.weekStart), [weekPlan.weekStart]);
+  const planLinesForAggregate = useMemo(() => {
+    const fromWeek = weekPlanToPlanLines(weekPlan);
+    return fromWeek.length > 0 ? fromWeek : plan;
+  }, [weekPlan, plan]);
+
+  const totals = useMemo(() => planMacrosTotal(planLinesForAggregate), [planLinesForAggregate]);
   const { buy, atHome } = useMemo(
-    () => buildShoppingList(plan, staples),
-    [plan, staples]
+    () => buildShoppingList(planLinesForAggregate, staples),
+    [planLinesForAggregate, staples]
   );
 
   const perMeal = useMemo(() => {
@@ -211,6 +258,63 @@ export function MealPlanPage() {
     if (i >= 0) next[i] = { ...next[i], portions: next[i].portions + 1 };
     else next.push({ recipeId, portions: 1 });
     setPlanAndSave(next);
+  }
+
+  function addSearchHitToPlan(title: string, url: string, snippet: string) {
+    if (weekPlan.locked) {
+      showPlanToast("Неделя зафиксирована — нажмите «Разблокировать», чтобы менять план.");
+      return;
+    }
+    const saved = upsertSavedRecipeFromSearchHit({
+      title: title || url,
+      url,
+      snippet,
+      macrosPerServing: perMeal,
+    });
+    invalidateSavedRecipesCache();
+    setSavedVersion((v) => v + 1);
+    const today = formatIsoDate(new Date());
+    const targetDate = weekDates.includes(today) ? today : weekDates[0]!;
+    const empty = firstEmptySlotInWeek(weekPlan, targetDate, targets.mealSlots);
+    if (empty) {
+      setWeekPlanAndSave(setWeekEntry(weekPlan, empty.date, empty.slotId, saved.id, 1));
+      showPlanToast(
+        `Добавлено в ${weekdayLabelRu(empty.date)}, слот «${targets.mealSlots.find((s) => s.id === empty.slotId)?.label ?? "приём"}».`
+      );
+    } else {
+      addRecipePortion(saved.id);
+      showPlanToast("Слоты недели заняты — добавлено в черновик порций.");
+    }
+    markUserOpened(title || url, url);
+  }
+
+  function assignRecipeToSlot(recipeId: string, date: string, slotId: string) {
+    if (weekPlan.locked) return;
+    setWeekPlanAndSave(setWeekEntry(weekPlan, date, slotId, recipeId, 1));
+    setPickSlot(null);
+    showPlanToast("Блюдо назначено в слот недели.");
+  }
+
+  function shiftWeek(deltaWeeks: number) {
+    if (weekPlan.locked) {
+      showPlanToast("Разблокируйте неделю, чтобы переключить даты.");
+      return;
+    }
+    setWeekPlanAndSave({ ...weekPlan, weekStart: addDaysIso(weekPlan.weekStart, deltaWeeks * 7), entries: [] });
+  }
+
+  function lockCurrentWeek() {
+    if (weekPlan.entries.length < 1) {
+      showPlanToast("Сначала добавьте блюда в слоты недели.");
+      return;
+    }
+    setWeekPlanAndSave({ ...weekPlan, locked: true });
+    showPlanToast("План на неделю зафиксирован.");
+  }
+
+  function unlockWeek() {
+    setWeekPlanAndSave({ ...weekPlan, locked: false });
+    showPlanToast("Неделя разблокирована.");
   }
 
   function changePortions(recipeId: string, delta: number) {
@@ -364,6 +468,70 @@ export function MealPlanPage() {
     }
   }
 
+  function renderRecipeCard(r: Recipe) {
+    const score = macroDistanceScore(r, targets);
+    const open = expanded === r.id;
+    const fromWeb = isSavedWebRecipe(r.id);
+    return (
+      <div
+        key={r.id}
+        className={cn(
+          "rounded-lg border border-border/60 bg-card/20 px-3 py-2 transition-colors",
+          open && "border-glow-primary/40 bg-card/35"
+        )}
+      >
+        <button type="button" className="w-full text-left" onClick={() => setExpanded(open ? null : r.id)}>
+          <div className="flex gap-3">
+            <RecipeCover src={r.imageUrl} alt={r.name} className="size-20 sm:size-[5.25rem]" />
+            <div className="min-w-0 flex-1">
+              <div className="flex justify-between gap-2">
+                <span className="text-sm font-medium leading-snug">{r.name}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                  {fromWeb ? "из сети" : `${r.minutes} мин`}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{r.teaser}</p>
+              <p className="mt-1.5 text-[11px] text-foreground/90">{macroLine(r.macrosPerServing)}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground/80">
+                отклонение от цели приёма: {score.toFixed(2)} (меньше — ближе)
+              </p>
+            </div>
+          </div>
+        </button>
+        {open && (
+          <div className="mt-2 border-t border-border/40 pt-2 space-y-2">
+            {r.ingredients.length > 0 ? (
+              <ul className="text-[11px] text-muted-foreground space-y-0.5 pl-3 list-disc">
+                {r.ingredients.map((ing, idx) => (
+                  <li key={`${r.id}-${idx}`}>
+                    {ing.name} — {fmtAmount(ing.amount)} {ing.unit}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Ингредиенты с сайта пока не разобраны — откройте ссылку в блоке поиска.
+              </p>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              className="w-full"
+              disabled={weekPlan.locked}
+              onClick={() => {
+                if (pickSlot && !weekPlan.locked) assignRecipeToSlot(r.id, pickSlot.date, pickSlot.slotId);
+                else if (!weekPlan.locked) addRecipePortion(r.id);
+              }}
+            >
+              <Plus className="size-4" />
+              {pickSlot && !weekPlan.locked ? "В выбранный слот" : "В черновик порций"}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!ready) {
     return (
       <div className="text-sm text-muted-foreground py-8 text-center">Загрузка…</div>
@@ -383,6 +551,12 @@ export function MealPlanPage() {
           </p>
         </div>
       </div>
+
+      {planToast ? (
+        <p className="text-xs rounded-lg border border-glow-primary/30 bg-primary/10 px-3 py-2 text-foreground">
+          {planToast}
+        </p>
+      ) : null}
 
       <Card size="sm">
         <CardHeader className="border-b border-border/50 pb-3">
@@ -604,9 +778,7 @@ export function MealPlanPage() {
             Рецепты из сети: источники и поиск
           </CardTitle>
           <p className="text-xs text-muted-foreground font-normal leading-snug">
-            Засеянный список сайтов (hostname) — можно добавлять свои. Поиск идёт через Tavily только по включённым
-            доменам; недавние URL из истории отсекаются, чтобы реже повторяться. Предпочтения — текст + «новизна»
-            запроса.
+            Поиск по выбранным сайтам. «В план на неделю» сохраняет рецепт и ставит в первый свободный слот недели.
           </p>
         </CardHeader>
         <CardContent className="space-y-4 pt-3">
@@ -770,15 +942,28 @@ export function MealPlanPage() {
                     {h.snippet ? (
                       <p className="mt-1 text-[11px] text-muted-foreground leading-snug line-clamp-4">{h.snippet}</p>
                     ) : null}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="mt-1 h-7 text-[11px]"
-                      onClick={() => markUserOpened(h.title || h.url, h.url)}
-                    >
-                      Запомнить открытие
-                    </Button>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 text-[11px]"
+                        disabled={weekPlan.locked}
+                        onClick={() => addSearchHitToPlan(h.title || h.url, h.url, h.snippet)}
+                      >
+                        <Plus className="size-3" />
+                        В план на неделю
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[11px]"
+                        onClick={() => markUserOpened(h.title || h.url, h.url)}
+                      >
+                        Запомнить открытие
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -806,76 +991,44 @@ export function MealPlanPage() {
         </CardContent>
       </Card>
 
+      <WeekPlanCard
+        weekPlan={weekPlan}
+        mealSlots={targets.mealSlots}
+        pickSlot={pickSlot}
+        onPickSlot={setPickSlot}
+        onChange={setWeekPlanAndSave}
+        onLock={lockCurrentWeek}
+        onUnlock={unlockWeek}
+        onShiftWeek={shiftWeek}
+      />
+
       <Card size="sm">
         <CardHeader className="border-b border-border/50 pb-3">
           <CardTitle className="text-base">Каталог рецептов</CardTitle>
           <p className="text-xs text-muted-foreground font-normal">
-            Сортировка по близости КБЖУ к одному приёму; у блюд — иллюстративные фото (Wikimedia Commons). Нажмите
-            карточку — ингредиенты; «+ порция» — в план.
+            Подбор по КБЖУ на один приём. «Выбрать блюдо» в неделе → затем карточка здесь.
           </p>
         </CardHeader>
         <CardContent className="space-y-2 pt-3">
-          {sortedRecipes.map((r) => {
-            const score = macroDistanceScore(r, targets);
-            const open = expanded === r.id;
-            return (
-              <div
-                key={r.id}
-                className={cn(
-                  "rounded-lg border border-border/60 bg-card/20 px-3 py-2 transition-colors",
-                  open && "border-glow-primary/40 bg-card/35"
-                )}
-              >
-                <button
-                  type="button"
-                  className="w-full text-left"
-                  onClick={() => setExpanded(open ? null : r.id)}
-                >
-                  <div className="flex gap-3">
-                    <RecipeCover src={r.imageUrl} alt={r.name} className="size-20 sm:size-[5.25rem]" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex justify-between gap-2">
-                        <span className="text-sm font-medium leading-snug">{r.name}</span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-                          {r.minutes} мин
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{r.teaser}</p>
-                      <p className="mt-1.5 text-[11px] text-foreground/90">{macroLine(r.macrosPerServing)}</p>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground/80">
-                        отклонение от цели приёма: {score.toFixed(2)} (меньше — ближе)
-                      </p>
-                    </div>
-                  </div>
-                </button>
-                {open && (
-                  <div className="mt-2 border-t border-border/40 pt-2 space-y-2">
-                    <ul className="text-[11px] text-muted-foreground space-y-0.5 pl-3 list-disc">
-                      {r.ingredients.map((ing, idx) => (
-                        <li key={`${r.id}-${idx}`}>
-                          {ing.name} — {fmtAmount(ing.amount)} {ing.unit}
-                        </li>
-                      ))}
-                    </ul>
-                    <Button type="button" size="sm" className="w-full" onClick={() => addRecipePortion(r.id)}>
-                      <Plus className="size-4" />
-                      Добавить 1 порцию в план
-                    </Button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {sortedRecipes.some((r) => isSavedWebRecipe(r.id)) ? (
+            <p className="text-[11px] font-medium text-foreground">Сохранённые из поиска</p>
+          ) : null}
+          {sortedRecipes.filter((r) => isSavedWebRecipe(r.id)).map((r) => renderRecipeCard(r))}
+          {sortedRecipes.some((r) => !isSavedWebRecipe(r.id)) ? (
+            <p className="text-[11px] font-medium text-foreground pt-2">Каталог</p>
+          ) : null}
+          {sortedRecipes.filter((r) => !isSavedWebRecipe(r.id)).map((r) => renderRecipeCard(r))}
         </CardContent>
       </Card>
 
       <Card size="sm">
         <CardHeader className="border-b border-border/50 pb-3">
-          <CardTitle className="text-base">План (порции)</CardTitle>
+          <CardTitle className="text-base">Черновик (порции)</CardTitle>
+          <p className="text-xs text-muted-foreground font-normal">Запасной список, если слоты недели заняты.</p>
         </CardHeader>
         <CardContent className="space-y-2 pt-3">
           {plan.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Пока пусто — добавьте порции из каталога.</p>
+            <p className="text-xs text-muted-foreground">Пусто — блюда из поиска обычно попадают в неделю.</p>
           ) : (
             <>
               {plan
@@ -942,8 +1095,8 @@ export function MealPlanPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 pt-3">
-          {plan.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Добавьте блюда в план — здесь появится агрегат по продуктам.</p>
+          {planLinesForAggregate.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Заполните неделю — здесь появится список продуктов.</p>
           ) : (
             <>
               <div className="flex gap-2">

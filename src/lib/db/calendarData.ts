@@ -54,7 +54,8 @@ export async function fetchPeriodData(
     .from("workouts")
     .select("*")
     .eq("user_id", userId)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .eq("status", "completed");
 
   if (scope === "month") {
     const year = options.year ?? new Date().getFullYear();

@@ -202,6 +202,7 @@ async function main() {
         total_distance: null,
         calories_estimated: null,
         notes: IMPORT_NOTE,
+        status: "completed",
       })
       .select("id")
       .single();
@@ -243,6 +244,7 @@ async function main() {
         total_distance,
         calories_estimated: null,
         notes: IMPORT_NOTE,
+        status: "completed",
       })
       .select("id")
       .single();

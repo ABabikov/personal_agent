@@ -1,8 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Waves, RotateCcw, Sparkles, History, CalendarClock } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  Plus,
+  Waves,
+  RotateCcw,
+  Sparkles,
+  History,
+  CalendarClock,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,7 +53,19 @@ import {
 import { cn } from "@/lib/utils";
 import { swimWorkoutToSeriesInputs } from "@/lib/features/workouts/swimFormFromSeed";
 import type { ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
-import { saveSwimWorkoutToSupabase } from "@/lib/db/saveWorkout";
+import {
+  completeWorkout,
+  fetchActiveSwimWorkout,
+  fetchSwimWorkoutById,
+  softDeleteWorkout,
+  updateSwimWorkoutToSupabase,
+  upsertActiveSwimWorkout,
+  type LoadedSwimWorkout,
+} from "@/lib/db/workoutMutations";
+import {
+  confirmEditCompletedWorkout,
+  WORKOUT_STATUS_LABEL_RU,
+} from "@/lib/features/workouts/workoutStatus";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import {
   fetchLastSwimWorkoutFromDb,
@@ -71,14 +94,29 @@ function todayString() {
   return new Date().toISOString().split("T")[0];
 }
 
+type SwimSessionStatus = "new" | "active" | "completed";
+
 function SwimWorkoutEditor({
+  sessionStatus,
+  workoutId,
   lastWorkout,
+  initialParsed,
+  initialNotes = "",
   onSaveSuccess,
+  onWorkoutId,
+  onCompleted,
   planDraft,
   historyApply,
+  onDeleted,
 }: {
+  sessionStatus: SwimSessionStatus;
+  workoutId?: string;
   lastWorkout: ParsedSwimWorkout | null;
+  initialParsed?: ParsedSwimWorkout | null;
+  initialNotes?: string;
   onSaveSuccess?: () => void;
+  onWorkoutId?: (id: string) => void;
+  onCompleted?: () => void;
   /** Атомарно подставляет серии из планировщика (revision меняется каждый раз при генерации). */
   planDraft?: { revision: number; rows: SwimSeriesInput[] } | null;
   /** Подстановка серий из истории; dateMode «today» — дата формы = сегодня. */
@@ -87,15 +125,27 @@ function SwimWorkoutEditor({
     workout: ParsedSwimWorkout;
     dateMode: "today" | "preserve";
   } | null;
+  onDeleted?: () => void;
 }) {
-  const [date, setDate] = useState(todayString);
-  const [series, setSeries] = useState<SwimSeriesInput[]>(() =>
-    lastWorkout ? swimWorkoutToSeriesInputs(lastWorkout) : [newSeries()]
+  const isActive = sessionStatus === "active";
+  const isCompleted = sessionStatus === "completed";
+  const isNew = sessionStatus === "new";
+  const [date, setDate] = useState(() =>
+    initialParsed ? initialParsed.date : todayString()
   );
-  const [notes, setNotes] = useState("");
+  const [series, setSeries] = useState<SwimSeriesInput[]>(() => {
+    if (initialParsed) return swimWorkoutToSeriesInputs(initialParsed);
+    if (isNew && lastWorkout) return swimWorkoutToSeriesInputs(lastWorkout);
+    return [newSeries()];
+  });
+  const [notes, setNotes] = useState(initialNotes);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
     "idle"
   );
+  const [completeState, setCompleteState] = useState<"idle" | "completing">(
+    "idle"
+  );
+  const [deleteState, setDeleteState] = useState<"idle" | "deleting">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -177,11 +227,20 @@ function SwimWorkoutEditor({
       description: s.description,
     }));
 
-    const result = await saveSwimWorkoutToSupabase({
-      date,
-      series: seriesPayload,
-      notes,
-    });
+    const payload = { date, series: seriesPayload, notes };
+
+    let result:
+      | { ok: true; workoutId?: string }
+      | { error: string };
+
+    if (isCompleted && workoutId) {
+      result = await updateSwimWorkoutToSupabase({ workoutId, ...payload });
+    } else {
+      result = await upsertActiveSwimWorkout({ workoutId, ...payload });
+      if ("ok" in result && result.workoutId && !workoutId) {
+        onWorkoutId?.(result.workoutId);
+      }
+    }
 
     if ("error" in result) {
       setSaveError(result.error);
@@ -194,9 +253,76 @@ function SwimWorkoutEditor({
     onSaveSuccess?.();
   }
 
+  async function handleComplete() {
+    if (!isActive && !isNew) return;
+    setSaveError(null);
+    setCompleteState("completing");
+    const seriesPayload = series.map((s) => ({
+      distance: parseInt(s.distance, 10) || 0,
+      description: s.description,
+    }));
+    const saved = await upsertActiveSwimWorkout({
+      workoutId,
+      date,
+      series: seriesPayload,
+      notes,
+    });
+    if ("error" in saved) {
+      setSaveError(saved.error);
+      setCompleteState("idle");
+      return;
+    }
+    const id = saved.workoutId;
+    if (!workoutId) onWorkoutId?.(id);
+    const done = await completeWorkout(id);
+    setCompleteState("idle");
+    if ("error" in done) {
+      setSaveError(done.error);
+      return;
+    }
+    onCompleted?.();
+  }
+
+  async function handleDelete() {
+    if (!workoutId) return;
+    const msg = isActive
+      ? "Отменить активную тренировку? Черновик будет удалён."
+      : "Удалить эту тренировку? Она исчезнет из календаря и сводок. В базе останется скрытой записью.";
+    if (!confirm(msg)) return;
+    if (isCompleted && !confirmEditCompletedWorkout()) return;
+    setSaveError(null);
+    setDeleteState("deleting");
+    const result = await softDeleteWorkout(workoutId);
+    setDeleteState("idle");
+    if ("error" in result) {
+      setSaveError(result.error);
+      return;
+    }
+    onDeleted?.();
+  }
+
+  const busy =
+    saveState === "saving" ||
+    deleteState === "deleting" ||
+    completeState === "completing";
+
   return (
     <div className="space-y-4">
-      {lastWorkout && (
+      {isActive && (
+        <Card className="border-swim/30 bg-swim/5">
+          <CardContent className="pt-3 pb-3">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {WORKOUT_STATUS_LABEL_RU.active}
+              </span>
+              {" — "}
+              сохраняйте черновик по ходу. «Завершить» — запись попадёт в календарь.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isNew && lastWorkout && (
         <Button variant="outline" size="sm" onClick={applyLast}>
           <RotateCcw className="size-3.5" />
           <span>Подставить последнюю из базы</span>
@@ -275,19 +401,57 @@ function SwimWorkoutEditor({
         onClick={handleSave}
         className="w-full bg-swim hover:bg-swim/90 text-swim-foreground"
         size="lg"
-        disabled={saveState === "saving"}
+        disabled={busy}
       >
         {saveState === "saving"
           ? "Сохранение..."
           : saveState === "saved"
-            ? "Сохранено"
-            : "Сохранить тренировку"}
+            ? "Черновик сохранён"
+            : isCompleted
+              ? "Сохранить изменения"
+              : "Сохранить черновик"}
       </Button>
+
+      {(isActive || isNew) && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          className="w-full"
+          disabled={busy}
+          onClick={() => void handleComplete()}
+        >
+          {completeState === "completing"
+            ? "Завершение…"
+            : "Завершить тренировку"}
+        </Button>
+      )}
+
+      {workoutId && (
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
+          disabled={busy}
+          onClick={() => void handleDelete()}
+        >
+          <Trash2 className="size-4" />
+          {deleteState === "deleting"
+            ? "Удаление…"
+            : isActive
+              ? "Отменить черновик"
+              : "Удалить тренировку"}
+        </Button>
+      )}
     </div>
   );
 }
 
-export default function SwimPage() {
+function SwimPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit")?.trim() || null;
   const [hydrated, setHydrated] = useState(false);
   const [userError, setUserError] = useState<string | null>(null);
   const [lastFetchError, setLastFetchError] = useState<string | null>(null);
@@ -326,6 +490,13 @@ export default function SwimPage() {
     dateMode: "today" | "preserve";
   } | null>(null);
   const [generationMeta, setGenerationMeta] = useState<string | null>(null);
+  const [editData, setEditData] = useState<LoadedSwimWorkout | null>(null);
+  const [editLoadError, setEditLoadError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(Boolean(editId));
+  const [editConfirmed, setEditConfirmed] = useState(false);
+  const [activeWorkout, setActiveWorkout] = useState<LoadedSwimWorkout | null>(
+    null
+  );
 
   const refreshLast = useCallback(async () => {
     const user = await getWorkoutUserId();
@@ -346,6 +517,19 @@ export default function SwimPage() {
       setLastFetchError(null);
       setLastTemplate(res.data);
     }
+    const activeRes = await fetchActiveSwimWorkout(user.userId);
+    if ("error" in activeRes) {
+      setActiveWorkout(null);
+    } else {
+      setActiveWorkout(activeRes.data);
+    }
+  }, []);
+
+  const reloadActiveWorkout = useCallback(async (workoutId: string) => {
+    const user = await getWorkoutUserId();
+    if ("error" in user) return;
+    const res = await fetchSwimWorkoutById(user.userId, workoutId);
+    if ("data" in res) setActiveWorkout(res.data);
   }, []);
 
   const loadHistory = useCallback(async () => {
@@ -363,6 +547,7 @@ export default function SwimPage() {
   }, [workoutUserId]);
 
   useEffect(() => {
+    if (editId) return;
     let cancelled = false;
     (async () => {
       await refreshLast();
@@ -371,7 +556,48 @@ export default function SwimPage() {
     return () => {
       cancelled = true;
     };
-  }, [refreshLast]);
+  }, [refreshLast, editId]);
+
+  useEffect(() => {
+    if (!editId) {
+      setEditData(null);
+      setEditLoadError(null);
+      setEditLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setEditLoading(true);
+      setEditLoadError(null);
+      const user = await getWorkoutUserId();
+      if ("error" in user) {
+        if (!cancelled) {
+          setEditLoadError(user.error);
+          setEditLoading(false);
+        }
+        return;
+      }
+      setWorkoutUserId(user.userId);
+      const res = await fetchSwimWorkoutById(user.userId, editId);
+      if (cancelled) return;
+      if ("error" in res) {
+        setEditLoadError(res.error);
+        setEditData(null);
+      } else {
+        setEditData(res.data);
+      }
+      setEditLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
+
+  useEffect(() => {
+    if (editData?.status === "active") {
+      router.replace("/swim");
+    }
+  }, [editData, router]);
 
   useEffect(() => {
     if (!workoutUserId) return;
@@ -529,6 +755,97 @@ export default function SwimPage() {
     }
   }
 
+  if (editId) {
+    const editDateLabel = editData
+      ? new Date(editData.parsed.date + "T12:00:00").toLocaleDateString("ru", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : null;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-swim/15">
+              <Waves className="size-5 text-swim" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold truncate">
+                Редактирование плавания
+              </h1>
+              {editDateLabel && (
+                <p className="text-xs text-muted-foreground">{editDateLabel}</p>
+              )}
+            </div>
+          </div>
+          <Link href="/" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            На главную
+          </Link>
+        </div>
+
+        {editLoading && (
+          <p className="text-sm text-muted-foreground">Загрузка тренировки…</p>
+        )}
+        {editLoadError && (
+          <Card>
+            <CardContent className="pt-4 space-y-2">
+              <p className="text-sm text-destructive" role="alert">
+                {editLoadError}
+              </p>
+              <Link
+                href="/"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Вернуться в календарь
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+        {editData &&
+          editData.status === "completed" &&
+          !editConfirmed &&
+          !editLoading &&
+          !editLoadError && (
+            <Card>
+              <CardContent className="space-y-3 pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Тренировка уже завершена и в календаре. Правки изменят сводки.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    if (confirmEditCompletedWorkout()) setEditConfirmed(true);
+                  }}
+                >
+                  Редактировать завершённую
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        {editData &&
+          editData.status === "completed" &&
+          editConfirmed &&
+          !editLoading &&
+          !editLoadError && (
+            <SwimWorkoutEditor
+              key={editData.workoutId}
+              sessionStatus="completed"
+              workoutId={editData.workoutId}
+              lastWorkout={null}
+              initialParsed={editData.parsed}
+              initialNotes={editData.notes}
+              onSaveSuccess={() => router.push("/")}
+              onDeleted={() => router.push("/")}
+            />
+          )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -628,6 +945,18 @@ export default function SwimPage() {
                             )}
                           </div>
                           <div className="flex flex-wrap gap-1">
+                            <Button
+                              type="button"
+                              variant="default"
+                              size="sm"
+                              className="h-7 gap-1 text-[11px] px-2 bg-swim hover:bg-swim/90 text-swim-foreground"
+                              onClick={() =>
+                                router.push(`/swim?edit=${item.workoutId}`)
+                              }
+                            >
+                              <Pencil className="size-3 shrink-0" />
+                              Редактировать
+                            </Button>
                             <Button
                               type="button"
                               variant="secondary"
@@ -913,16 +1242,45 @@ export default function SwimPage() {
 
       {hydrated && !userError && (
         <SwimWorkoutEditor
-          lastWorkout={lastParsed}
+          key={activeWorkout?.workoutId ?? "new-swim"}
+          sessionStatus={activeWorkout ? "active" : "new"}
+          workoutId={activeWorkout?.workoutId}
+          lastWorkout={activeWorkout ? null : lastParsed}
+          initialParsed={activeWorkout?.parsed}
+          initialNotes={activeWorkout?.notes ?? ""}
           planDraft={planDraft}
           historyApply={historyApply}
+          onWorkoutId={(id) => void reloadActiveWorkout(id)}
           onSaveSuccess={() => {
+            if (activeWorkout?.workoutId) {
+              void reloadActiveWorkout(activeWorkout.workoutId);
+            } else {
+              void refreshLast();
+            }
+          }}
+          onCompleted={() => {
+            setActiveWorkout(null);
             setStatsRefreshKey((k) => k + 1);
+            router.push("/");
+          }}
+          onDeleted={() => {
+            setActiveWorkout(null);
             void refreshLast();
-            void loadHistory();
           }}
         />
       )}
     </div>
+  );
+}
+
+export default function SwimPage() {
+  return (
+    <Suspense
+      fallback={
+        <p className="p-4 text-sm text-muted-foreground">Загрузка…</p>
+      }
+    >
+      <SwimPageContent />
+    </Suspense>
   );
 }

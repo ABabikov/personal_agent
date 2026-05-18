@@ -59,6 +59,7 @@ export async function fetchLastGymWorkoutFromDb(
     .eq("user_id", userId)
     .eq("type", "gym")
     .is("deleted_at", null)
+    .eq("status", "completed")
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
@@ -86,6 +87,7 @@ export async function fetchLastGymWorkoutForWeekdayFromDb(
     .eq("user_id", userId)
     .eq("type", "gym")
     .is("deleted_at", null)
+    .eq("status", "completed")
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(200);
@@ -126,6 +128,7 @@ export async function fetchLastSwimWorkoutFromDb(
     .eq("user_id", userId)
     .eq("type", "swim")
     .is("deleted_at", null)
+    .eq("status", "completed")
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
@@ -178,6 +181,7 @@ export async function fetchSwimWorkoutsHistoryFromDb(
     .eq("user_id", userId)
     .eq("type", "swim")
     .is("deleted_at", null)
+    .eq("status", "completed")
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(limit);

@@ -4,7 +4,7 @@
 
 import type { MealPlanTargets, PlanLine, MealSlot } from "./types";
 import { DEFAULT_TARGETS } from "./types";
-import { recipeById } from "./seedRecipes";
+import { recipeById } from "./recipes";
 import type { RecipeDiscoveryForAgent } from "./recipeDiscoveryTypes";
 import {
   mergeAgentDiscoveryPatch,
