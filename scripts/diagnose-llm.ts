@@ -138,6 +138,38 @@ async function main(): Promise<number> {
     problems++;
   }
 
+  // 2b) Хватает ли бюджета под реальный max_tokens (OpenRouter резервирует кредиты по нему).
+  console.log(`\n${DIM}=== 2b. Бюджет под max_tokens ===${RESET}`);
+  const want = getAgentMaxCompletionTokens();
+  try {
+    const probe = await chatCompletion({
+      messages: [{ role: "user", content: "Ответь одним словом: ок." }],
+      temperature: 0,
+      maxTokens: want,
+    });
+    const had402 = probe.attempts.some((a) => a.status === 402);
+    if (!had402 && probe.modelUsed === PRIMARY_LLM_MODEL) {
+      console.log(ok(`Бюджета хватает на max_tokens=${want} на основной модели.`));
+    } else if (had402) {
+      console.log(
+        warn(
+          `При max_tokens=${want} баланса не хватает: система ужала запрос/сменила модель (ответила ${probe.modelUsed}). ` +
+            `Чат работать будет, но ответы короче. Для полноразмерных — пополни баланс OpenRouter или снизь OPENROUTER_MAX_COMPLETION_TOKENS.`
+        )
+      );
+    } else {
+      console.log(warn(`max_tokens=${want}: ответила ${probe.modelUsed} (не основная).`));
+    }
+  } catch (e) {
+    console.log(
+      bad(
+        `При max_tokens=${want} упали все модели: ${e instanceof Error ? e.message : String(e)}. ` +
+          `Снизь OPENROUTER_MAX_COMPLETION_TOKENS или пополни баланс.`
+      )
+    );
+    problems++;
+  }
+
   // 3) Эмбеддинги (память).
   console.log(`\n${DIM}=== 3. Эмбеддинги (долговременная память) ===${RESET}`);
   try {

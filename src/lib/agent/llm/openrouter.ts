@@ -66,6 +66,20 @@ function log(level: "info" | "warn" | "error", message: string, meta?: unknown) 
   else console.log(line);
 }
 
+/** Не ужимаем ниже этого порога — иначе ответ бессмысленно короткий, лучше сменить модель. */
+const MIN_AFFORDABLE_TOKENS = 256;
+
+/**
+ * OpenRouter резервирует кредиты по `max_tokens` заранее и при нехватке отвечает 402
+ * с текстом "...can only afford 1304". Вытаскиваем это число, чтобы повторить запрос под бюджет.
+ */
+function parseAffordableTokens(errText: string): number | null {
+  const m = /can only afford (\d+)/i.exec(errText);
+  if (!m) return null;
+  const n = Number.parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export async function chatCompletion(
   input: ChatCompletionInput
 ): Promise<ChatCompletionResult> {
@@ -79,111 +93,138 @@ export async function chatCompletion(
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i];
-    const effectiveMaxTokens = pickMaxTokens(model, maxTokens);
-    log("info", `chat trying model ${model} (${i + 1}/${chain.length})`);
+    let effectiveMaxTokens = pickMaxTokens(model, maxTokens);
+    let reducedForAfford = false;
 
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), DEFAULT_HTTP_TIMEOUT_MS);
+    // Внутренний повтор: при 402 «can only afford N» ужимаем max_tokens под бюджет
+    // и пробуем ТУ ЖЕ (лучшую доступную) модель ещё раз, прежде чем уходить на фоллбек.
+    inner: for (let localTry = 0; localTry < 2; localTry++) {
+      log(
+        "info",
+        `chat trying model ${model} (${i + 1}/${chain.length})` +
+          (localTry > 0 ? ` [retry @ ${effectiveMaxTokens} tok]` : "")
+      );
 
-      const body: Record<string, unknown> = {
-        model,
-        temperature,
-        max_tokens: effectiveMaxTokens,
-        messages: input.messages.map(toApiMessage),
-      };
-      if (input.tools && input.tools.length > 0) {
-        body.tools = input.tools;
-        body.tool_choice = input.toolChoice ?? "auto";
-      }
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), DEFAULT_HTTP_TIMEOUT_MS);
 
-      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://personal-agent.local",
-          "X-Title": "Personal Agent (Jarvis)",
-        },
-        body: JSON.stringify(body),
-      });
+        const body: Record<string, unknown> = {
+          model,
+          temperature,
+          max_tokens: effectiveMaxTokens,
+          messages: input.messages.map(toApiMessage),
+        };
+        if (input.tools && input.tools.length > 0) {
+          body.tools = input.tools;
+          body.tool_choice = input.toolChoice ?? "auto";
+        }
 
-      clearTimeout(timer);
+        const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://personal-agent.local",
+            "X-Title": "Personal Agent (Jarvis)",
+          },
+          body: JSON.stringify(body),
+        });
 
-      if (RETRYABLE_STATUSES.has(response.status)) {
-        const errText = await safeText(response);
-        log("warn", `model ${model} returned ${response.status} — trying next`, { errText });
-        attempts.push({ model, status: response.status, error: errText.slice(0, 300) });
-        lastError = `${model} → HTTP ${response.status}: ${errText.slice(0, 300)}`;
-        continue;
-      }
-      if (!response.ok) {
-        const errText = await safeText(response);
-        log("warn", `model ${model} HTTP ${response.status}`, { errText });
-        attempts.push({ model, status: response.status, error: errText.slice(0, 300) });
-        lastError = `${model} → HTTP ${response.status}: ${errText.slice(0, 300)}`;
-        continue;
-      }
+        clearTimeout(timer);
 
-      const data = await response.json();
-      const choices = data?.choices;
-      if (!Array.isArray(choices) || choices.length === 0) {
-        log("warn", `model ${model} returned no choices`);
-        attempts.push({ model, status: response.status, error: "no choices" });
-        lastError = `${model} → no choices`;
-        continue;
-      }
-      const msg = choices[0].message ?? {};
-      const content: string | null =
-        typeof msg.content === "string" ? msg.content : null;
-      const toolCalls: ToolCallDescriptor[] = Array.isArray(msg.tool_calls)
-        ? msg.tool_calls.map((tc: ToolCallDescriptor) => ({
-            id: tc.id,
-            type: "function",
-            function: {
-              name: tc.function.name,
-              arguments: tc.function.arguments,
-            },
-          }))
-        : [];
-
-      const finishReason: string | undefined = choices[0].finish_reason;
-      const usage = data?.usage
-        ? {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
+        // 402 из-за нехватки кредитов под запрошенный max_tokens: ужать и повторить ту же модель.
+        if (response.status === 402 && !reducedForAfford) {
+          const errText = await safeText(response);
+          const afford = parseAffordableTokens(errText);
+          if (afford != null && afford >= MIN_AFFORDABLE_TOKENS && afford < effectiveMaxTokens) {
+            reducedForAfford = true;
+            effectiveMaxTokens = afford;
+            log("warn", `model ${model} 402 — повтор с max_tokens=${effectiveMaxTokens} (под бюджет)`);
+            continue inner;
           }
-        : undefined;
+          log("warn", `model ${model} 402 — бюджета не хватает даже на минимум, следующая модель`, { errText });
+          attempts.push({ model, status: 402, error: errText.slice(0, 300) });
+          lastError = `${model} → HTTP 402: ${errText.slice(0, 300)}`;
+          break inner;
+        }
 
-      // Считаем успехом, если есть либо content, либо хотя бы один tool_call.
-      if (content == null && toolCalls.length === 0) {
-        log("warn", `model ${model} returned empty content+tool_calls`);
-        attempts.push({ model, status: response.status, error: "empty response" });
-        lastError = `${model} → empty response`;
-        continue;
+        if (RETRYABLE_STATUSES.has(response.status)) {
+          const errText = await safeText(response);
+          log("warn", `model ${model} returned ${response.status} — trying next`, { errText });
+          attempts.push({ model, status: response.status, error: errText.slice(0, 300) });
+          lastError = `${model} → HTTP ${response.status}: ${errText.slice(0, 300)}`;
+          break inner;
+        }
+        if (!response.ok) {
+          const errText = await safeText(response);
+          log("warn", `model ${model} HTTP ${response.status}`, { errText });
+          attempts.push({ model, status: response.status, error: errText.slice(0, 300) });
+          lastError = `${model} → HTTP ${response.status}: ${errText.slice(0, 300)}`;
+          break inner;
+        }
+
+        const data = await response.json();
+        const choices = data?.choices;
+        if (!Array.isArray(choices) || choices.length === 0) {
+          log("warn", `model ${model} returned no choices`);
+          attempts.push({ model, status: response.status, error: "no choices" });
+          lastError = `${model} → no choices`;
+          break inner;
+        }
+        const msg = choices[0].message ?? {};
+        const content: string | null =
+          typeof msg.content === "string" ? msg.content : null;
+        const toolCalls: ToolCallDescriptor[] = Array.isArray(msg.tool_calls)
+          ? msg.tool_calls.map((tc: ToolCallDescriptor) => ({
+              id: tc.id,
+              type: "function",
+              function: {
+                name: tc.function.name,
+                arguments: tc.function.arguments,
+              },
+            }))
+          : [];
+
+        const finishReason: string | undefined = choices[0].finish_reason;
+        const usage = data?.usage
+          ? {
+              promptTokens: data.usage.prompt_tokens,
+              completionTokens: data.usage.completion_tokens,
+            }
+          : undefined;
+
+        // Считаем успехом, если есть либо content, либо хотя бы один tool_call.
+        if (content == null && toolCalls.length === 0) {
+          log("warn", `model ${model} returned empty content+tool_calls`);
+          attempts.push({ model, status: response.status, error: "empty response" });
+          lastError = `${model} → empty response`;
+          break inner;
+        }
+
+        attempts.push({ model, status: response.status });
+        log("info", `chat success with ${model}`, {
+          contentLen: content?.length ?? 0,
+          toolCalls: toolCalls.length,
+          finishReason,
+          maxTokens: effectiveMaxTokens,
+        });
+        return {
+          content,
+          toolCalls,
+          modelUsed: model,
+          attempts,
+          finishReason,
+          usage,
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        log("warn", `model ${model} threw ${msg}`);
+        attempts.push({ model, status: null, error: msg });
+        lastError = `${model} → ${msg}`;
+        break inner;
       }
-
-      attempts.push({ model, status: response.status });
-      log("info", `chat success with ${model}`, {
-        contentLen: content?.length ?? 0,
-        toolCalls: toolCalls.length,
-        finishReason,
-      });
-      return {
-        content,
-        toolCalls,
-        modelUsed: model,
-        attempts,
-        finishReason,
-        usage,
-      };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      log("warn", `model ${model} threw ${msg}`);
-      attempts.push({ model, status: null, error: msg });
-      lastError = `${model} → ${msg}`;
-      continue;
     }
   }
 
