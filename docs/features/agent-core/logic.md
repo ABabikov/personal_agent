@@ -36,8 +36,8 @@
       ```
       [system(prompt + факты + обрывки прошлого), ...вся история этого разговора, user(message)]
       ```
-   5. **ReAct-цикл** (до 6 итераций):
-      - `chatCompletion({ messages, tools, toolChoice:'auto', temperature:0.3, maxTokens:2048 })` →
+   5. **ReAct-цикл** (до 8 итераций, `loop.ts:53`):
+      - `chatCompletion({ messages, tools, toolChoice:'auto', temperature:0.3, maxTokens:getAgentMaxCompletionTokens() })` (дефолт лимита — 1024 токена, см. ниже) →
         - либо текстовый `content` (финал — выходим),
         - либо `tool_calls[]` — добавляем `assistant{tool_calls}` в messages, исполняем каждый тул через `runTool`, добавляем `tool{content}` в messages, идём на следующую итерацию.
       - На каждом шаге пишем сообщение в БД (`saveAssistantMessage` / `saveToolMessage`).
@@ -47,16 +47,16 @@
 
 `chatCompletion` (`src/lib/agent/llm/openrouter.ts`):
 
-- Цепочка: `[OPENROUTER_LLM_MODEL ?? 'anthropic/claude-sonnet-4', 'google/gemini-2.5-flash', 'deepseek/...-free', 'meta-llama/llama-4-maverick:free']`.
+- Цепочка (дефолт `models.ts:35-42`): `[OPENROUTER_LLM_MODEL ?? 'anthropic/claude-sonnet-4', 'openai/gpt-4o-mini', 'google/gemini-2.0-flash-001', 'deepseek/deepseek-chat']`. Переопределяется `OPENROUTER_LLM_FALLBACKS`.
 - Для каждой модели: один HTTP-POST на `${OPENROUTER_BASE_URL}/chat/completions`.
 - **Retryable**: HTTP 402, 404, 429, 503 → переходим к следующей модели и записываем попытку в `attempts`.
 - Любой `throw` (timeout, network) → тоже к следующей.
 - Если модель вернула HTTP 200, но `choices[0].message` пустой и без `tool_calls` → считаем некорректным, идём дальше.
 - Падаем (`throw`) только если упали ВСЕ.
 - В `result.attempts` всегда есть полный список — это спасает при отладке.
-- `max_tokens` подрезается до 4096 (`pickMaxTokens`) — на случай очень бюджетных моделей.
+- `max_tokens` берётся из `getAgentMaxCompletionTokens()` — **дефолт 1024** (`models.ts:45`), переопределяется `OPENROUTER_MAX_COMPLETION_TOKENS` (clamp 64..8192); `pickMaxTokens` дополнительно режет `:free`-модели до 512. ⚠️ Дефолт 1024 обрезает развёрнутые ответы — см. [audit.md](./audit.md#1).
 
-Эмбеддинги — та же логика, но цепочка короче: `text-embedding-3-large` → `text-embedding-3-small`. Если оба упали — `recallContext` возвращает пустые массивы (агент работает без памяти, но не падает).
+Эмбеддинги — та же логика, но цепочка короче: `text-embedding-3-large` → `text-embedding-3-small`. Если оба упали — `recallContext` возвращает пустые массивы (агент работает БЕЗ памяти, но не падает). ⚠️ Это значит, что при сбое эмбеддингов агент «забывает» пользователя — см. [audit.md](./audit.md#3).
 
 ## 4. Tools — что есть и зачем
 

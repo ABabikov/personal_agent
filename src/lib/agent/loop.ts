@@ -8,7 +8,11 @@ import {
   type ChatCompletionResult,
   type ChatMessageForApi,
 } from "@/lib/agent/llm/openrouter";
-import { getAgentMaxCompletionTokens } from "@/lib/agent/llm/models";
+import {
+  getAgentMaxCompletionTokens,
+  getAgentTemperature,
+  PRIMARY_LLM_MODEL,
+} from "@/lib/agent/llm/models";
 import { runTool, toolsToSpecs } from "@/lib/agent/tools";
 import { buildSystemPrompt } from "@/lib/agent/prompts/system";
 import {
@@ -20,7 +24,6 @@ import {
 } from "@/lib/agent/memory/store";
 import { recallContext } from "@/lib/agent/memory/recall";
 import { buildSessionSnapshot } from "@/lib/agent/context/sessionSnapshot";
-import type { ToolCallDescriptor } from "@/types/database";
 
 export type AgentRunInput = {
   userId: string;
@@ -47,6 +50,10 @@ export type AgentRunResult = {
   conversationId: string;
   finalAnswer: string;
   steps: AgentRunStep[];
+  /** Модель, давшая финальный ответ. */
+  finalModel: string;
+  /** true, если финальный ответ пришёл не от основной модели (молчаливый даунгрейд). */
+  usedFallback: boolean;
 };
 
 export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
@@ -93,7 +100,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       messages,
       tools,
       toolChoice: "auto",
-      temperature: 0.3,
+      temperature: getAgentTemperature(),
       maxTokens: getAgentMaxCompletionTokens(),
     });
 
@@ -160,7 +167,13 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       content: final,
     });
     steps.push(step);
-    return { conversationId: input.conversationId, finalAnswer: final, steps };
+    return {
+      conversationId: input.conversationId,
+      finalAnswer: final,
+      steps,
+      finalModel: completion.modelUsed,
+      usedFallback: completion.modelUsed !== PRIMARY_LLM_MODEL,
+    };
   }
 
   // Лимит итераций — попросим модель завершить, но возвращаем как есть.
@@ -171,5 +184,12 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     conversationId: input.conversationId,
     content: fallback,
   });
-  return { conversationId: input.conversationId, finalAnswer: fallback, steps };
+  const lastModel = steps[steps.length - 1]?.modelUsed ?? PRIMARY_LLM_MODEL;
+  return {
+    conversationId: input.conversationId,
+    finalAnswer: fallback,
+    steps,
+    finalModel: lastModel,
+    usedFallback: lastModel !== PRIMARY_LLM_MODEL,
+  };
 }

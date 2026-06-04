@@ -176,7 +176,13 @@ export default function ChatPage() {
         applyMealPlanFromChatSteps(steps);
         setBubbles((b) => [
           ...b,
-          { role: "assistant", text: data.finalAnswer ?? "", steps },
+          {
+            role: "assistant",
+            text: data.finalAnswer ?? "",
+            steps,
+            modelUsed: typeof data.finalModel === "string" ? data.finalModel : undefined,
+            usedFallback: data.usedFallback === true,
+          },
         ]);
       }
     } catch (e) {
