@@ -1,7 +1,7 @@
 # Agent Core — статус
 
-## Current Phase: Phase 1 (MVP)
-## Status: Done — чат работает, тулы подключены, память сохраняется
+## Current Phase: Phase 1 (MVP) — готов; запланирован рефакторинг «настоящий тренер»
+## Status: Done (MVP). Аудит качества чата: [audit.md](./audit.md). План работ: [refactor-plan.md](./refactor-plan.md).
 
 ## Progress
 
@@ -9,7 +9,7 @@
 |--------------------------------------------------------------------------|-------------|------------|
 | Миграция `003_chat_memory.sql`: chat_messages + user_context + pgvector | Done        | 2026-05-11 |
 | Типы Supabase для новых таблиц                                           | Done        | 2026-05-11 |
-| LLM-клиент OpenRouter с фоллбеками (claude-sonnet-4 → gemini → deepseek → llama-4-maverick) | Done | 2026-05-11 |
+| LLM-клиент OpenRouter с фоллбеками (claude-sonnet-4 → gpt-4o-mini → gemini-2.0-flash-001 → deepseek-chat) | Done | 2026-05-11 |
 | Embeddings (text-embedding-3-large 1536, фоллбек на 3-small)             | Done        | 2026-05-11 |
 | Тулы: профиль (get_profile / save_profile / compute_bmr_tdee)             | Done        | 2026-05-11 |
 | Тулы: чтение тренировок (last gym/swim, recent, in-range, details, week) | Done        | 2026-05-11 |
@@ -25,10 +25,11 @@
 | `POST /api/chat` handler                                                 | Done        | 2026-05-11 |
 | UI `/chat`: пузыри, новая сессия, trace тулов                            | Done        | 2026-05-11 |
 | Доки (description / plan / status / logic)                                | Done        | 2026-05-11 |
+| Рефакторинг «тренер» Фаза 0: лимит токенов 4096, temperature в конфиг, бейдж модели в UI, `diagnose:llm` | Done | 2026-06-04 |
 | Стриминг (SSE)                                                            | Not Started | -          |
 | PG-функция `match_chat_messages` (RPC через pgvector index)              | Not Started | -          |
 | Авто-извлечение фактов из переписки                                       | Not Started | -          |
-| История чатов в UI (переключение между conversation_id)                  | Not Started | -          |
+| История чатов в UI (переключение между conversation_id)                  | Done        | `ChatConversationPicker` |
 
 ## Известные ограничения
 

@@ -41,8 +41,12 @@ const DEFAULT_LLM_FALLBACKS: string[] = [
 export const LLM_FALLBACKS: string[] =
   parseFallbacksFromEnv() ?? DEFAULT_LLM_FALLBACKS;
 
-/** Потолок completion-токенов на один запрос (меньше — меньше списание при малом балансе OpenRouter). */
-const DEFAULT_MAX_COMPLETION_TOKENS = 1024;
+/**
+ * Потолок completion-токенов на один запрос. 4096 — чтобы развёрнутый тренерский разбор не
+ * обрезался по finish_reason="length" (см. docs/features/agent-core/audit.md, находка #1).
+ * При малом балансе OpenRouter можно уменьшить через OPENROUTER_MAX_COMPLETION_TOKENS.
+ */
+const DEFAULT_MAX_COMPLETION_TOKENS = 4096;
 
 export function getAgentMaxCompletionTokens(): number {
   const raw = process.env.OPENROUTER_MAX_COMPLETION_TOKENS?.trim();
@@ -50,6 +54,20 @@ export function getAgentMaxCompletionTokens(): number {
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n)) return DEFAULT_MAX_COMPLETION_TOKENS;
   return Math.min(8192, Math.max(64, n));
+}
+
+/**
+ * Температура агента. Чуть выше нуля — живее и теплее для коуч-диалога, но всё ещё
+ * детерминирована для расчётов. Переопределяется OPENROUTER_TEMPERATURE (clamp 0..2).
+ */
+const DEFAULT_AGENT_TEMPERATURE = 0.4;
+
+export function getAgentTemperature(): number {
+  const raw = process.env.OPENROUTER_TEMPERATURE?.trim();
+  if (!raw) return DEFAULT_AGENT_TEMPERATURE;
+  const n = Number.parseFloat(raw);
+  if (!Number.isFinite(n)) return DEFAULT_AGENT_TEMPERATURE;
+  return Math.min(2, Math.max(0, n));
 }
 
 export const PRIMARY_EMBEDDING_MODEL =

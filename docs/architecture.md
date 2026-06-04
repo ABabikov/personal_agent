@@ -94,7 +94,7 @@ saveUserMessage(...)              — пишем СРАЗУ, ещё до LLM, ч
     ↓
 build system prompt: характер + факты + обрывки прошлых разговоров + текущая дата
     ↓
-ReAct loop (≤6 итераций):
+ReAct loop (≤8 итераций):
   chatCompletion(...) ── OpenRouter с цепочкой фоллбеков
         │
         ├── tool_calls? ── для каждого → runTool() → пишем tool-сообщение, идём дальше
@@ -103,9 +103,9 @@ ReAct loop (≤6 итераций):
 return { finalAnswer, steps }     — steps содержит trace всех тулов для UI
 ```
 
-Цепочка моделей при ошибках 402/404/429/503 или throw: `anthropic/claude-sonnet-4 → google/gemini-2.5-flash → deepseek/deepseek-chat-v3-0324:free → meta-llama/llama-4-maverick:free`. Полный список попыток сохраняется в `result.attempts`.
+Цепочка моделей при ошибках 402/404/429/503 или throw: `anthropic/claude-sonnet-4 → openai/gpt-4o-mini → google/gemini-2.0-flash-001 → deepseek/deepseek-chat` (дефолт в `llm/models.ts`; переопределяется `OPENROUTER_LLM_FALLBACKS`). Полный список попыток сохраняется в `result.attempts`. ⚠️ Даунгрейд молчаливый — см. [features/agent-core/audit.md](features/agent-core/audit.md).
 
-Tools — 20 штук, разбиты по категориям (профиль / чтение тренировок / аналитика / запись / память). Каждый — обёртка над функциями из `lib/db/` и `lib/features/`. Все вызывают одну и ту же бизнес-логику, что и UI-формы.
+Tools — ~30 штук, разбиты по категориям (профиль / чтение тренировок / аналитика / запись / редактирование / память / финансы / питание / web_search). Каждый — обёртка над функциями из `lib/db/` и `lib/features/`. Все вызывают одну и ту же бизнес-логику, что и UI-формы.
 
 ## Data Model (Supabase PostgreSQL + pgvector)
 

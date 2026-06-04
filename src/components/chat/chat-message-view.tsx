@@ -1,11 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, Wrench, AlertTriangle, Cpu } from "lucide-react";
 
 export type ChatBubble =
   | { role: "user"; text: string }
-  | { role: "assistant"; text: string; steps?: AssistantStep[] }
+  | {
+      role: "assistant";
+      text: string;
+      steps?: AssistantStep[];
+      /** Модель, давшая финальный ответ (для бейджа). */
+      modelUsed?: string;
+      /** true — ответ пришёл с резервной модели (молчаливый даунгрейд). */
+      usedFallback?: boolean;
+    }
   | { role: "error"; text: string };
 
 export type AssistantStep = {
@@ -42,7 +50,36 @@ export function ChatBubbleView({ bubble }: { bubble: ChatBubble }) {
         <div className="rounded-2xl rounded-bl-md bg-muted px-3 py-2 text-sm whitespace-pre-wrap">
           {bubble.text}
         </div>
+        {bubble.modelUsed && (
+          <ModelBadge model={bubble.modelUsed} fallback={bubble.usedFallback} />
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Короткое имя модели без провайдера: "anthropic/claude-sonnet-4" → "claude-sonnet-4". */
+function shortModel(model: string): string {
+  const slash = model.lastIndexOf("/");
+  return slash >= 0 ? model.slice(slash + 1) : model;
+}
+
+function ModelBadge({ model, fallback }: { model: string; fallback?: boolean }) {
+  if (fallback) {
+    return (
+      <div
+        className="flex items-center gap-1 px-1 text-[10px] text-amber-600 dark:text-amber-500"
+        title={`Ответ дан резервной моделью (${model}), а не основной. Возможен низкий баланс OpenRouter или недоступность основной модели.`}
+      >
+        <AlertTriangle className="size-3" />
+        резервная модель: {shortModel(model)}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
+      <Cpu className="size-3" />
+      {shortModel(model)}
     </div>
   );
 }
