@@ -1,5 +1,9 @@
 import { supabase } from "@/lib/db/supabase";
-import type { ExpenseKind } from "@/types/database";
+import type {
+  ExpenseKind,
+  ExpenseRuleMatchType,
+  ExpenseRuleOrigin,
+} from "@/types/database";
 import type { SberParsedOperation } from "@/lib/features/expenses/sberXlsxImport";
 
 export async function insertManualExpenseTransaction(params: {
@@ -177,6 +181,74 @@ export async function upsertSberBankOperations(params: {
   if (jrnErr) console.warn("expense_imports:", jrnErr.message);
 
   return { ok: true, inserted, skipped };
+}
+
+export type LearnedRuleInput = {
+  matchType: ExpenseRuleMatchType;
+  /** уже нормализованный образец (нижний регистр, без лишней пунктуации) */
+  pattern: string;
+  kind: ExpenseKind;
+  categoryId: string;
+  origin: ExpenseRuleOrigin;
+};
+
+/** Приоритет по силе признака: место сильнее MCC, MCC сильнее категории банка. */
+const RULE_PRIORITY: Record<ExpenseRuleMatchType, number> = {
+  merchant: 10,
+  mcc: 20,
+  bank_category: 30,
+  description: 40,
+};
+
+/**
+ * Запоминает подтверждённые на импорте связки «признак → категория».
+ * Благодаря этому следующий импорт того же мерчанта не требует ручного выбора.
+ * Повторное правило не дублируется, а обновляет категорию и счётчик срабатываний.
+ */
+export async function saveLearnedCategoryRules(params: {
+  userId: string;
+  rules: LearnedRuleInput[];
+}): Promise<{ ok: true; saved: number } | { error: string }> {
+  const { userId } = params;
+
+  // Дедуп внутри одного вызова: upsert падает, если в payload две строки с одним арбитром.
+  const byKey = new Map<string, LearnedRuleInput>();
+  for (const r of params.rules) {
+    const pattern = r.pattern.trim();
+    if (!pattern || !r.categoryId) continue;
+    byKey.set(`${r.matchType}|${pattern}|${r.kind}`, { ...r, pattern });
+  }
+  if (byKey.size === 0) return { ok: true, saved: 0 };
+
+  const { data: existing, error: selErr } = await supabase
+    .from("expense_category_rules")
+    .select("match_type, pattern, kind, hits")
+    .eq("user_id", userId)
+    .limit(5000);
+  if (selErr) return { error: selErr.message };
+
+  const hitsByKey = new Map<string, number>();
+  for (const row of existing ?? []) {
+    hitsByKey.set(`${row.match_type}|${row.pattern}|${row.kind}`, row.hits ?? 0);
+  }
+
+  const payload = Array.from(byKey.entries()).map(([key, r]) => ({
+    user_id: userId,
+    match_type: r.matchType,
+    pattern: r.pattern,
+    kind: r.kind,
+    category_id: r.categoryId,
+    priority: RULE_PRIORITY[r.matchType],
+    origin: r.origin,
+    hits: (hitsByKey.get(key) ?? 0) + 1,
+  }));
+
+  const { error } = await supabase
+    .from("expense_category_rules")
+    .upsert(payload, { onConflict: "user_id,match_type,pattern,kind" });
+  if (error) return { error: error.message };
+
+  return { ok: true, saved: payload.length };
 }
 
 /** Скрывает операцию из UI и отчётов (soft delete). */

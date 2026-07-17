@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Wallet, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Wallet, Trash2, Upload } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PieChart, type PieSlice } from "@/components/charts/pie-chart";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
@@ -24,8 +25,7 @@ import {
   insertExpenseCategory,
   softDeleteExpenseTransaction,
 } from "@/lib/db/expenseMutations";
-import { ExpenseCategoryCombobox } from "@/components/expenses/expense-category-combobox";
-import { SberXlsxImportDialog } from "@/components/expenses/sber-xlsx-import-dialog";
+import { CategoryPicker } from "@/components/expenses/category-picker";
 import { ExpenseMonthCalendar } from "@/components/expenses/expense-month-calendar";
 import { expenseTransactionLocalDate } from "@/lib/features/expenses/expenseCalendar";
 import { dateFromIso, isoLocalDate } from "@/lib/features/workouts/analytics";
@@ -191,32 +191,6 @@ export function ExpensesPage() {
     () => new Map(data.categories.map((c) => [c.id, c])),
     [data.categories]
   );
-
-  const categoriesMatchingFormKind = useMemo(() => {
-    return activeCategories
-      .filter((c) => c.kind === formKind)
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [activeCategories, formKind]);
-
-  const formCategoryOptions = useMemo(() => {
-    return categoriesMatchingFormKind.map((c) => {
-      const parent = c.parent_id ? categoryById.get(c.parent_id) : null;
-      const label = parent ? `${parent.name} / ${c.name}` : c.name;
-      return { id: c.id, label };
-    });
-  }, [categoriesMatchingFormKind, categoryById]);
-
-  const parentFilterOptions = useMemo(
-    () => parentCategories.map((c) => ({ id: c.id, label: c.name })),
-    [parentCategories]
-  );
-
-  const newCategoryParentOptions = useMemo(() => {
-    return activeCategories
-      .filter((c) => c.kind === newCatKind && c.parent_id == null)
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"))
-      .map((c) => ({ id: c.id, label: c.name }));
-  }, [activeCategories, newCatKind]);
 
   useEffect(() => {
     if (data.accounts.length === 0) return;
@@ -390,6 +364,25 @@ export function ExpensesPage() {
     [load]
   );
 
+  /** Создание категории прямо из пикера, без похода в «Справочник категорий». */
+  const createCategory = useCallback(
+    async (name: string, kind: ExpenseKind, parentId: string | null): Promise<string | null> => {
+      const user = await getWorkoutUserId();
+      if ("error" in user) {
+        setError(user.error);
+        return null;
+      }
+      const res = await insertExpenseCategory({ userId: user.userId, name, kind, parentId });
+      if ("error" in res) {
+        setError(res.error);
+        return null;
+      }
+      await load();
+      return res.id;
+    },
+    [load]
+  );
+
   async function onSubmitManual(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -483,11 +476,13 @@ export function ExpensesPage() {
           <h2 className="text-xl font-semibold">Финансы</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <SberXlsxImportDialog
-            disabled={loading}
-            onImported={() => void load()}
-            categories={activeCategories}
-          />
+          <Link
+            href="/expenses/import"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <Upload className="mr-1.5 size-4" />
+            Импорт
+          </Link>
           <Button
             type="button"
             variant="outline"
@@ -648,14 +643,16 @@ export function ExpensesPage() {
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-muted-foreground">Категория</span>
-                <ExpenseCategoryCombobox
+                <CategoryPicker
                   id="expense-form-category"
                   value={formCategoryId}
                   onChange={setFormCategoryId}
-                  options={formCategoryOptions}
+                  categories={activeCategories}
+                  kind={formKind}
                   allowEmpty
                   emptyLabel="Не указана"
                   disabled={loading}
+                  onCreate={(name, parentId) => createCategory(name, formKind, parentId)}
                 />
               </label>
             </div>
@@ -796,14 +793,14 @@ export function ExpensesPage() {
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted-foreground">Категория (верхний уровень)</span>
-              <ExpenseCategoryCombobox
+              <CategoryPicker
                 id="expense-filter-parent-cat"
                 value={parentCategoryId}
                 onChange={setParentCategoryId}
-                options={parentFilterOptions}
+                categories={activeCategories}
+                parentsOnly
                 allowEmpty
                 emptyLabel="Все"
-                placeholder="Поиск категории…"
                 disabled={loading}
               />
             </label>
@@ -961,14 +958,15 @@ export function ExpensesPage() {
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-muted-foreground">Родитель (опционально)</span>
-                <ExpenseCategoryCombobox
+                <CategoryPicker
                   id="expense-new-cat-parent"
                   value={newCatParentId}
                   onChange={setNewCatParentId}
-                  options={newCategoryParentOptions}
+                  categories={activeCategories}
+                  kind={newCatKind}
+                  parentsOnly
                   allowEmpty
                   emptyLabel="Корневая категория"
-                  placeholder="Поиск группы…"
                   disabled={loading || newCatSubmitting}
                 />
               </label>

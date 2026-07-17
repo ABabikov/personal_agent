@@ -116,6 +116,60 @@ async function sha1Hex(text: string): Promise<string> {
     .join("");
 }
 
+/**
+ * Достаёт место и MCC из описания операции.
+ *
+ * Сбер кладёт в «Описание» строку вида
+ *   «Операция по карте: 220015******1048, дата создания транзакции: 25-04-2026,
+ *    место совершения операции: RU/Novosibirsk/MAGNIT MM IOGAN, MCC: 5411»
+ * — то есть мерчант и MCC там есть, просто не отдельными колонками. Это главный сигнал
+ * для автокатегоризации: колонка «Категория» у 90% строк выписки — «Прочие операции».
+ *
+ * Платежи по реквизитам выглядят иначе: «…Платеж … в пользу МТС,+7913+++7526,…».
+ *
+ * Экспортируется, чтобы тем же разбором вытаскивать мерчанта из описаний уже
+ * импортированных операций (в БД у них merchant = null, но текст описания сохранён).
+ */
+export function extractMerchantAndMcc(description: string | null): {
+  merchant: string | null;
+  mcc: string | null;
+} {
+  const text = (description ?? "").replace(/ /g, " ").trim();
+  if (!text) return { merchant: null, mcc: null };
+
+  const mccMatch = text.match(/MCC:?\s*(\d{4})/i);
+  const mcc = mccMatch ? mccMatch[1] : null;
+
+  let merchant: string | null = null;
+
+  const place = text.match(/место совершения операции:\s*([^,]+)/i);
+  if (place) {
+    // «RU/Novosibirsk/MAGNIT MM IOGAN» → последний сегмент
+    const segments = place[1]
+      .split("/")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    merchant = segments[segments.length - 1] ?? null;
+  }
+
+  if (!merchant) {
+    const payee = text.match(/в пользу\s+([^,.;]+)/i);
+    if (payee) merchant = payee[1].trim() || null;
+  }
+
+  if (merchant && merchant.length > 120) merchant = merchant.slice(0, 120);
+  return { merchant, mcc };
+}
+
+/** Ключ мерчанта для сравнения: регистр, пунктуация и лишние пробелы не важны. */
+export function normalizeMerchantKey(merchant: string | null): string {
+  return (merchant ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function inferKind(params: {
   signed: { abs: number; sign: 1 | -1 };
   bankCategory: string;
@@ -236,7 +290,10 @@ export async function parseSberXlsxArrayBuffer(buf: ArrayBuffer): Promise<SberPa
         : "Без категории";
     const description = colDesc != null ? String(row[colDesc] ?? "").trim() || null : null;
     const mccRaw = colMcc != null ? String(row[colMcc] ?? "").trim() : "";
-    const mcc = mccRaw.length > 0 ? mccRaw : null;
+    const mccFromColumn = mccRaw.length > 0 ? mccRaw : null;
+    const fromDescription = extractMerchantAndMcc(description);
+    const mcc = mccFromColumn ?? fromDescription.mcc;
+    const merchant = fromDescription.merchant;
 
     if (!String(rawDate ?? "").trim() && !String(rawAmt ?? "").trim()) continue;
 
@@ -250,7 +307,11 @@ export async function parseSberXlsxArrayBuffer(buf: ArrayBuffer): Promise<SberPa
       occurredAt = parseRussianDateTime(String(rawDate ?? "").trim());
     }
     if (!occurredAt) {
-      issues.push({ rowIndex: r + 1, message: `Строка ${r + 1}: непонятная дата «${rawDate}»` });
+      // Подвал выписки («Страница 1 из 1», подпись сотрудника) попадает в колонку даты.
+      // Это не операции: жалуемся только если в строке есть сумма, иначе молча пропускаем.
+      if (String(rawAmt ?? "").trim()) {
+        issues.push({ rowIndex: r + 1, message: `Строка ${r + 1}: непонятная дата «${rawDate}»` });
+      }
       continue;
     }
 
@@ -267,10 +328,19 @@ export async function parseSberXlsxArrayBuffer(buf: ArrayBuffer): Promise<SberPa
     });
 
     const amount = signed.abs;
+    // В хеш идёт mcc из колонки, а не выведенный из описания: external_id — арбитр дедупа
+    // (user_id, source, external_id), и любое изменение формулы заставило бы уже
+    // импортированные операции задвоиться при повторном импорте того же файла.
     const externalId = await sha1Hex(
-      ["sber_v1", occurredAt, amount.toFixed(2), kind, bankCategory, description ?? "", mcc ?? ""].join(
-        "|"
-      )
+      [
+        "sber_v1",
+        occurredAt,
+        amount.toFixed(2),
+        kind,
+        bankCategory,
+        description ?? "",
+        mccFromColumn ?? "",
+      ].join("|")
     );
 
     operations.push({
@@ -279,7 +349,7 @@ export async function parseSberXlsxArrayBuffer(buf: ArrayBuffer): Promise<SberPa
       kind,
       amount,
       description,
-      merchant: null,
+      merchant,
       mcc,
       bankCategory,
       externalId,

@@ -4,7 +4,8 @@
  * и считает агрегаты, которые нужны для KPI/чартов/таблицы.
  */
 import { supabase } from "@/lib/db/supabase";
-import type { ExpenseKind } from "@/types/database";
+import type { SuggestHistoryTx } from "@/lib/features/expenses/categorySuggest";
+import type { ExpenseKind, ExpenseRuleMatchType, ExpenseRuleOrigin } from "@/types/database";
 
 export type ExpensePeriodScope = "month" | "year" | "all";
 
@@ -42,8 +43,6 @@ export type ExpensesData = {
   categories: ExpenseCategoryRow[];
   transactions: ExpenseTransactionRow[];
 };
-
-const EMPTY: ExpensesData = { accounts: [], categories: [], transactions: [] };
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -139,6 +138,63 @@ export async function fetchExpenseAccountsAndCategories(
       categories: (cRes.data ?? []) as ExpenseCategoryRow[],
     },
   };
+}
+
+export type ExpenseCategoryRuleRow = {
+  id: string;
+  match_type: ExpenseRuleMatchType;
+  pattern: string;
+  kind: ExpenseKind;
+  category_id: string;
+  priority: number;
+  origin: ExpenseRuleOrigin;
+  hits: number;
+};
+
+/** Правила автокатегоризации, накопленные прошлыми импортами. */
+export async function fetchExpenseCategoryRules(
+  userId: string
+): Promise<{ data: ExpenseCategoryRuleRow[] } | { error: string }> {
+  const { data, error } = await supabase
+    .from("expense_category_rules")
+    .select("id, match_type, pattern, kind, category_id, priority, origin, hits")
+    .eq("user_id", userId)
+    .order("priority", { ascending: true })
+    .limit(5000);
+  if (error) return { error: error.message };
+  return { data: (data ?? []) as ExpenseCategoryRuleRow[] };
+}
+
+/**
+ * Обучающая выборка для подсказок категорий: все операции с проставленной категорией.
+ * `raw.bank_category` есть у строк из банковских выписок; у Money Manager его нет.
+ */
+export async function fetchCategorizedHistory(
+  userId: string
+): Promise<{ data: SuggestHistoryTx[] } | { error: string }> {
+  const { data, error } = await supabase
+    .from("expense_transactions")
+    .select("category_id, kind, merchant, mcc, description, raw")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .not("category_id", "is", null)
+    .order("occurred_at", { ascending: false })
+    .limit(20000);
+  if (error) return { error: error.message };
+
+  const history: SuggestHistoryTx[] = (data ?? []).map((r) => {
+    const raw = (r.raw ?? null) as Record<string, unknown> | null;
+    const bankCategory = raw && typeof raw.bank_category === "string" ? raw.bank_category : null;
+    return {
+      category_id: r.category_id as string,
+      kind: r.kind as ExpenseKind,
+      merchant: r.merchant,
+      mcc: r.mcc,
+      description: r.description,
+      bank_category: bankCategory,
+    };
+  });
+  return { data: history };
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

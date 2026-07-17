@@ -23,6 +23,12 @@ export type ExpenseKind = "expense" | "income" | "withdrawal" | "transfer";
 
 export type ExpenseSource = "manual" | "money_manager" | "bank_sber" | "agent";
 
+/** Признак, по которому правило автокатегоризации узнаёт операцию. */
+export type ExpenseRuleMatchType = "merchant" | "mcc" | "bank_category" | "description";
+
+/** Откуда взялось правило: выбор пользователя, подсказка модели, вывод из истории. */
+export type ExpenseRuleOrigin = "manual" | "llm" | "learned";
+
 export type ToolCallDescriptor = {
   id: string;
   type: "function";
@@ -395,6 +401,46 @@ export interface Database {
           },
           {
             foreignKeyName: "expense_transactions_category_id_fkey";
+            columns: ["category_id"];
+            isOneToOne: false;
+            referencedRelation: "expense_categories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      expense_category_rules: {
+        Row: {
+          id: string;
+          user_id: string;
+          match_type: ExpenseRuleMatchType;
+          pattern: string;
+          kind: ExpenseKind;
+          category_id: string;
+          priority: number;
+          origin: ExpenseRuleOrigin;
+          hits: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["expense_category_rules"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          priority?: number;
+          origin?: ExpenseRuleOrigin;
+          hits?: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["expense_category_rules"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "expense_category_rules_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "expense_category_rules_category_id_fkey";
             columns: ["category_id"];
             isOneToOne: false;
             referencedRelation: "expense_categories";
