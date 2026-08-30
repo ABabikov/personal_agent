@@ -9,7 +9,11 @@
  * Модуль намеренно чистый (никакого supabase-клиента и fetch): его вызывает и страница
  * импорта, и, в перспективе, агентский тул suggest_category.
  */
-import type { ExpenseKind, ExpenseRuleMatchType } from "@/types/database";
+import type {
+  ExpenseKind,
+  ExpenseRuleMatchType,
+  ExpenseRuleOrigin,
+} from "@/types/database";
 import { extractMerchantAndMcc, normalizeMerchantKey } from "./sberXlsxImport";
 import { mccHints } from "./mccCatalog";
 
@@ -38,6 +42,8 @@ export type SuggestRule = {
   kind: ExpenseKind;
   category_id: string;
   priority: number;
+  /** manual — подтвердил пользователь; learned/llm — авто, слабее словаря мест */
+  origin?: ExpenseRuleOrigin | string;
 };
 
 /** Прошлая операция с уже проставленной категорией — обучающий пример. */
@@ -57,6 +63,26 @@ export type SuggestOperation = {
   mcc: string | null;
   bankCategory: string;
   description: string | null;
+};
+
+/** Категории банка Сбера → наши имена (когда мерчанта нет). */
+const BANK_CATEGORY_HINTS: Record<string, string[]> = {
+  "телефон, интернет, тв": ["Прочее"],
+  "мобильная связь": ["Прочее"],
+  "штрафы и налоги": ["Прочее"],
+  "семья и дети": ["Семья и дети"],
+  "рестораны и кафе": ["Еда вне дома"],
+  "супермаркеты": ["Продукты"],
+  "транспорт": ["Транспорт"],
+  "аптеки": ["Здоровье"],
+  "одежда и обувь": ["Одежда"],
+  "развлечения": ["Развлечения"],
+  "спорт": ["Спорт"],
+  "путешествия": ["Путешествия"],
+  "жкх": ["Дом"],
+  "коммунальные платежи": ["Дом"],
+  "финансовые операции": ["Прочее"],
+  "хобби и увлечения": ["Развлечения", "Прочее"],
 };
 
 /** Категории банка, которые ничего не сообщают: у Сбера 90% строк — «Прочие операции». */
@@ -268,13 +294,84 @@ function resolveByName(
   name: string,
   kind: ExpenseKind
 ): SuggestCategory | null {
-  const want = name.trim().toLowerCase();
-  const matching = index.categories.filter(
-    (c) => c.kind === kind && c.name.trim().toLowerCase() === want
-  );
-  if (matching.length === 0) return null;
-  // Верхнеуровневая категория предпочтительнее одноимённой вложенной.
-  return matching.find((c) => c.parent_id == null) ?? matching[0];
+  const candidates =
+    kind === "expense" && name.trim().toLowerCase() === "прочее"
+      ? ["Разное", "Прочее"]
+      : [name];
+  for (const candidate of candidates) {
+    const want = candidate.trim().toLowerCase();
+    const matching = index.categories.filter(
+      (c) => c.kind === kind && c.name.trim().toLowerCase() === want
+    );
+    // Только верхний уровень: иначе «Прочее» цепляется к «Здоровье / прочее».
+    const parent = matching.find((c) => c.parent_id == null);
+    if (parent) return parent;
+  }
+  return null;
+}
+
+/**
+ * Известные места, где MCC врёт или отсутствует. Ключ — нормализованная «голова»
+ * мерчанта (первое слово) или полная нормализованная строка.
+ */
+const MERCHANT_CATEGORY_HINTS: { pattern: RegExp; categories: string[] }[] = [
+  { pattern: /^(krasnoe|красное)/i, categories: ["Алкоголь"] },
+  { pattern: /^(yarche|ярче|magnit|магнит|pyaterochka|пятерочка|dobryanka|добрянка|bystronom|быстроном|mariya|мария|svetofor|светофор|samokat|самокат|lavka|lavkarit)/i, categories: ["Продукты"] },
+  { pattern: /^(ozon)/i, categories: ["Прочее", "Продукты"] },
+  { pattern: /^(dodo|додо|wok|puzj|пуз|vetnam|вьетнам|shokolad|шоколад|pelmen|пельмен|grelka|грелка|karavan|караван)/i, categories: ["Еда вне дома"] },
+  { pattern: /^(gazpromneft|gpnbonus|azs|азс|rnazk|volga\s*motors)/i, categories: ["Транспорт"] },
+  { pattern: /^(sibtekhservis|сибтех)/i, categories: ["Транспорт"] },
+  { pattern: /^(yandex\s+go|yandex\s+taxi|taxi)/i, categories: ["Транспорт"] },
+  { pattern: /^(yandex\s+360|yandex\s+plus)/i, categories: ["Прочее"] },
+  { pattern: /^(yandex\s+lavka|yandex\s+dostavka)/i, categories: ["Продукты"] },
+  { pattern: /^(mts|мтс|rostelecom|ростелеком|pay\.mts)/i, categories: ["Прочее"] },
+  { pattern: /^(vetruda|ветруда|sportmaster|спортмастер|academic\s*fitnes|heroleague)/i, categories: ["Спорт"] },
+  { pattern: /^(akademfarma|академфарма|garmoniya|гармония|gbuz|gnkpb|akademmedikal)/i, categories: ["Здоровье"] },
+  { pattern: /^(galamart|галамарт|lemanapro|лемана|dns)/i, categories: ["Дом"] },
+  { pattern: /^(kvartplata|квартплата)/i, categories: ["Дом"] },
+  { pattern: /^(aeroflot|аэрофлот)/i, categories: ["Путешествия"] },
+  { pattern: /^(epgu|фнс|ekc)/i, categories: ["Прочее"] },
+  { pattern: /^(finamx)|firstbyte/i, categories: ["Прочее"] },
+  { pattern: /^(detsk|детский\s*мир|rich\s*femili)/i, categories: ["Семья и дети"] },
+  { pattern: /ppkd|olimpiya|olympic/i, categories: ["Развлечения", "Путешествия"] },
+  { pattern: /^(cdek|сдэк|сдек)/i, categories: ["Прочее"] },
+  { pattern: /platipomiru|accountbroker|32links|flippy/i, categories: ["Прочее"] },
+  { pattern: /^(modnyj|модный|funday|supermag|i\s+modnyj)/i, categories: ["Одежда"] },
+  { pattern: /^(зарплата)/i, categories: ["Зарплата"] },
+  { pattern: /парк|parkovk|gorpark/i, categories: ["Транспорт"] },
+  { pattern: /^(vsk|сао|страхов)/i, categories: ["Прочее"] },
+  { pattern: /pekarn|пекарн|privetliv|art\s*pekar/i, categories: ["Продукты"] },
+  { pattern: /aptech|аптеч/i, categories: ["Здоровье"] },
+  { pattern: /aeroexpress|аэроэкспресс|ekspress.?prigorod|proezd/i, categories: ["Транспорт"] },
+  { pattern: /kafe|кафе|bar|brunch|brancho|ndu|vostochka/i, categories: ["Еда вне дома"] },
+];
+
+function merchantHintCategories(merchant: string | null): string[] {
+  if (!merchant) return [];
+  const key = normalizeMerchantKey(merchant);
+  if (!key) return [];
+  for (const rule of MERCHANT_CATEGORY_HINTS) {
+    if (rule.pattern.test(key)) return rule.categories;
+  }
+  return [];
+}
+
+function isTrustedRule(rule: SuggestRule): boolean {
+  const origin = (rule.origin ?? "manual") as ExpenseRuleOrigin | string;
+  return origin === "manual";
+}
+
+function matchExactRule(
+  index: SuggestionIndex,
+  key: string,
+  opts: { trustedOnly?: boolean; learnedOnly?: boolean } = {}
+): SuggestRule | null {
+  const rule = index.exactRules.get(key);
+  if (!rule) return null;
+  const trusted = isTrustedRule(rule);
+  if (opts.trustedOnly && !trusted) return null;
+  if (opts.learnedOnly && trusted) return null;
+  return rule;
 }
 
 function clamp(n: number, min: number, max: number): number {
@@ -294,9 +391,13 @@ export function suggestCategory(
   const bankKey = normalizeBankCategory(op.bankCategory);
   const mcc = op.mcc?.trim() || null;
 
-  // 1. Правила, подтверждённые пользователем
+  // 1. Правила, подтверждённые пользователем (learned — после словаря мест)
   if (merchantKey) {
-    const rule = index.exactRules.get(`merchant|${op.kind}|${merchantKey}`);
+    const rule = matchExactRule(
+      index,
+      `merchant|${op.kind}|${merchantKey}`,
+      { trustedOnly: true }
+    );
     if (rule) {
       return {
         categoryId: rule.category_id,
@@ -307,7 +408,9 @@ export function suggestCategory(
     }
   }
   if (mcc) {
-    const rule = index.exactRules.get(`mcc|${op.kind}|${mcc}`);
+    const rule = matchExactRule(index, `mcc|${op.kind}|${mcc}`, {
+      trustedOnly: true,
+    });
     if (rule) {
       return {
         categoryId: rule.category_id,
@@ -318,7 +421,11 @@ export function suggestCategory(
     }
   }
   if (!isGenericBankCategory(op.bankCategory)) {
-    const rule = index.exactRules.get(`bank_category|${op.kind}|${bankKey}`);
+    const rule = matchExactRule(
+      index,
+      `bank_category|${op.kind}|${bankKey}`,
+      { trustedOnly: true }
+    );
     if (rule) {
       return {
         categoryId: rule.category_id,
@@ -331,6 +438,7 @@ export function suggestCategory(
   const descriptionHaystack = `${op.merchant ?? ""} ${op.description ?? ""}`.toLowerCase();
   for (const rule of index.descriptionRules) {
     if (rule.kind !== op.kind) continue;
+    if (!isTrustedRule(rule)) continue;
     if (rule.pattern && descriptionHaystack.includes(rule.pattern)) {
       return {
         categoryId: rule.category_id,
@@ -341,7 +449,68 @@ export function suggestCategory(
     }
   }
 
-  // 2. История: тот же мерчант / тот же MCC / та же категория банка
+  // 2. Словарь известных мест — раньше истории: иначе одна ошибочная разметка
+  // (и выученное из неё правило) утаскивает весь супермаркет в «Друзья».
+  if (merchantKey.startsWith("сбп ")) {
+    const hint = op.kind === "expense" ? "Друзья" : "Прочее";
+    const cat = resolveByName(index, hint, op.kind);
+    if (cat) {
+      return {
+        categoryId: cat.id,
+        source: "mcc",
+        confidence: 0.7,
+        reason: `перевод СБП → «${hint}»`,
+      };
+    }
+  }
+
+  if (
+    op.merchant &&
+    /[А-ЯЁ]/u.test(op.merchant) &&
+    /перевод/i.test(op.description ?? "")
+  ) {
+    const hint = op.kind === "expense" ? "Друзья" : "Прочее";
+    const cat = resolveByName(index, hint, op.kind);
+    if (cat) {
+      return {
+        categoryId: cat.id,
+        source: "mcc",
+        confidence: 0.68,
+        reason: `перевод человеку → «${hint}»`,
+      };
+    }
+  }
+
+  for (const hint of merchantHintCategories(op.merchant)) {
+    const cat = resolveByName(index, hint, op.kind);
+    if (cat) {
+      return {
+        categoryId: cat.id,
+        source: "mcc",
+        confidence: 0.78,
+        reason: `место «${op.merchant}» → обычно «${hint}»`,
+      };
+    }
+  }
+
+  // 2b. Выученные правила (после словаря — супермаркет не перебьёт ошибочный learn)
+  if (merchantKey) {
+    const rule = matchExactRule(
+      index,
+      `merchant|${op.kind}|${merchantKey}`,
+      { learnedOnly: true }
+    );
+    if (rule) {
+      return {
+        categoryId: rule.category_id,
+        source: "rule",
+        confidence: 0.88,
+        reason: `правило: место «${op.merchant}»`,
+      };
+    }
+  }
+
+  // 3. История: тот же мерчант / тот же MCC / та же категория банка
   if (merchantKey) {
     const vote = topVote(index.merchantVotes, voteKey(merchantKey, op.kind));
     if (vote) {
@@ -389,9 +558,20 @@ export function suggestCategory(
         reason: `история: категория банка «${op.bankCategory}» → ${categoryLabelIn(index, vote.categoryId)}`,
       };
     }
+    for (const hint of BANK_CATEGORY_HINTS[bankKey] ?? []) {
+      const cat = resolveByName(index, hint, op.kind);
+      if (cat) {
+        return {
+          categoryId: cat.id,
+          source: "mcc",
+          confidence: 0.65,
+          reason: `категория банка «${op.bankCategory}» → «${hint}»`,
+        };
+      }
+    }
   }
 
-  // 3. Справочник MCC — общий здравый смысл, когда истории по этому месту ещё нет
+  // 4. Справочник MCC
   for (const hint of mccHints(mcc)) {
     const cat = resolveByName(index, hint, op.kind);
     if (cat) {
@@ -404,7 +584,7 @@ export function suggestCategory(
     }
   }
 
-  // 4. Слабая аналогия по словам описания
+  // 5. Слабая аналогия по словам описания
   const tokens = tokenSource(op.merchant, op.description);
   if (tokens.length > 0) {
     const scores = new Map<string, number>();

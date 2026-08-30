@@ -5,10 +5,10 @@
  */
 
 import {
-  OPENROUTER_BASE_URL,
   RETRYABLE_STATUSES,
   buildLlmChain,
   getApiKey,
+  getLlmBaseUrl,
   getAgentMaxCompletionTokens,
   pickMaxTokens,
   DEFAULT_HTTP_TIMEOUT_MS,
@@ -120,7 +120,7 @@ export async function chatCompletion(
           body.tool_choice = input.toolChoice ?? "auto";
         }
 
-        const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        const response = await fetch(`${getLlmBaseUrl()}/chat/completions`, {
           method: "POST",
           signal: controller.signal,
           headers: {

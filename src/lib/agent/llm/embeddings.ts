@@ -1,13 +1,12 @@
 /**
- * Embeddings через OpenRouter с фоллбеком на text-embedding-3-small.
- * Возвращает массив фиксированной размерности (см. EMBEDDING_DIMENSIONS).
+ * Embeddings: по умолчанию OpenRouter (1536d под pgvector).
+ * Чат может идти через Qwen — см. getEmbeddingEndpoint().
  */
 
 import {
-  OPENROUTER_BASE_URL,
   RETRYABLE_STATUSES,
   buildEmbeddingChain,
-  getApiKey,
+  getEmbeddingEndpoint,
   EMBEDDING_DIMENSIONS,
   DEFAULT_HTTP_TIMEOUT_MS,
 } from "@/lib/agent/llm/models";
@@ -17,9 +16,18 @@ export async function embedText(
   primary?: string | null
 ): Promise<{ embedding: number[]; modelUsed: string } | null> {
   if (!text || !text.trim()) return null;
-  const apiKey = getApiKey();
-  const chain = buildEmbeddingChain(primary ?? null);
 
+  let endpoint: { baseUrl: string; apiKey: string };
+  try {
+    endpoint = getEmbeddingEndpoint();
+  } catch (e) {
+    console.warn(
+      `[agent.emb] no embedding endpoint: ${e instanceof Error ? e.message : String(e)}`
+    );
+    return null;
+  }
+
+  const chain = buildEmbeddingChain(primary ?? null);
   let lastError: string | null = null;
 
   for (const model of chain) {
@@ -36,11 +44,11 @@ export async function embedText(
         body.dimensions = EMBEDDING_DIMENSIONS;
       }
 
-      const r = await fetch(`${OPENROUTER_BASE_URL}/embeddings`, {
+      const r = await fetch(`${endpoint.baseUrl}/embeddings`, {
         method: "POST",
         signal: controller.signal,
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${endpoint.apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -68,7 +76,6 @@ export async function embedText(
         lastError = `${model} → empty embedding`;
         continue;
       }
-      // Если размерность не совпала — не валим, но пишем warn (на ретривале и так норм).
       if (vec.length !== EMBEDDING_DIMENSIONS) {
         console.warn(
           `[agent.emb] ${model} returned ${vec.length} dims, expected ${EMBEDDING_DIMENSIONS}`

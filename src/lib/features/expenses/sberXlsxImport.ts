@@ -130,21 +130,40 @@ async function sha1Hex(text: string): Promise<string> {
  * Экспортируется, чтобы тем же разбором вытаскивать мерчанта из описаний уже
  * импортированных операций (в БД у них merchant = null, но текст описания сохранён).
  */
+/**
+ * У Сбера / Яндекса / Сбера Pay иногда MCC вшит в имя точки:
+ *   «YANDEX 5411 LAVKARIT», «SBER 5411 SAMOKAT», «YANDEX 4121 GO».
+ * Тогда колоночный MCC часто «3990/3991» (агрегатор) и бесполезен.
+ */
+function unwrapEmbeddedMccMerchant(raw: string): {
+  merchant: string;
+  embeddedMcc: string | null;
+} {
+  const m = raw.match(
+    /^(YANDEX|SBER|YA\.|YM)\s+(\d{4})\s+(.+)$/i
+  );
+  if (m) {
+    const brand = m[1].toUpperCase().startsWith("YA") ? "YANDEX" : m[1].toUpperCase();
+    return { merchant: `${brand} ${m[3].trim()}`, embeddedMcc: m[2] };
+  }
+  return { merchant: raw, embeddedMcc: null };
+}
+
 export function extractMerchantAndMcc(description: string | null): {
   merchant: string | null;
   mcc: string | null;
 } {
-  const text = (description ?? "").replace(/ /g, " ").trim();
+  const text = (description ?? "").replace(/\u00a0/g, " ").trim();
   if (!text) return { merchant: null, mcc: null };
 
+  // «MCC: 5411» или слитно «MCC5300» (возвраты в старом формате)
   const mccMatch = text.match(/MCC:?\s*(\d{4})/i);
-  const mcc = mccMatch ? mccMatch[1] : null;
+  let mcc = mccMatch ? mccMatch[1] : null;
 
   let merchant: string | null = null;
 
   const place = text.match(/место совершения операции:\s*([^,]+)/i);
   if (place) {
-    // «RU/Novosibirsk/MAGNIT MM IOGAN» → последний сегмент
     const segments = place[1]
       .split("/")
       .map((s) => s.trim())
@@ -152,9 +171,54 @@ export function extractMerchantAndMcc(description: string | null): {
     merchant = segments[segments.length - 1] ?? null;
   }
 
+  // Возврат/старый формат: «...\RU\MOSCOW\OZON RETAIL ... MCC5300»
+  if (!merchant) {
+    const legacy = text.match(/\\[A-Z]{2}\\([^\\]+)\\([^\\]+?)(?:\s{2,}|\s+\d)/);
+    if (legacy) {
+      merchant = legacy[2].trim() || null;
+    }
+  }
+
+  if (!merchant) {
+    // СБП C2B: «…в Сдэк Кривощековская через Систему быстрых платежей»
+    // (\b не используем — в JS граница слова не работает с кириллицей)
+    const sbpC2b = text.match(
+      /в\s+(.+?)\s+через\s+систему\s+быстрых\s+платежей/i
+    );
+    if (sbpC2b) merchant = sbpC2b[1].replace(/^ПАО\s+/i, "").replace(/^["«]|["»]$/g, "").trim() || null;
+  }
+
   if (!merchant) {
     const payee = text.match(/в пользу\s+([^,.;]+)/i);
     if (payee) merchant = payee[1].trim() || null;
+  }
+
+  if (!merchant) {
+    // Альфа/Сбер перевод человеку: «Перевод клиенту ИМЯ Ф. по номеру…»
+    const person = text.match(
+      /перевод клиенту\s+(.+?)\s+по номеру/i
+    );
+    if (person) merchant = person[1].replace(/\s+/g, " ").trim() || null;
+  }
+
+  if (!merchant) {
+    const phone = text.match(
+      /(?:на|от)\s+(\+7[\d\s()\-]{10,20}|\+7\d{10})/i
+    );
+    if (phone) merchant = `СБП ${phone[1].replace(/\s+/g, "")}`;
+  }
+
+  if (!merchant) {
+    // Зарплата / аванс по договору
+    if (/зарплата|аванс/i.test(text) && /договор/i.test(text)) {
+      merchant = /аванс/i.test(text) ? "Зарплата (аванс)" : "Зарплата";
+    }
+  }
+
+  if (merchant) {
+    const unwrapped = unwrapEmbeddedMccMerchant(merchant);
+    merchant = unwrapped.merchant;
+    if (unwrapped.embeddedMcc) mcc = unwrapped.embeddedMcc;
   }
 
   if (merchant && merchant.length > 120) merchant = merchant.slice(0, 120);
@@ -174,18 +238,49 @@ function inferKind(params: {
   signed: { abs: number; sign: 1 | -1 };
   bankCategory: string;
   description: string;
+  mcc: string | null;
 }): "expense" | "income" | "withdrawal" | "transfer" {
   const cat = params.bankCategory.toLowerCase();
   const desc = params.description.toLowerCase();
+  const mcc = (params.mcc ?? "").trim();
+
+  // Переводы между своими счетами / погашение кредита / пополнение карты — не расход/доход.
+  if (
+    desc.includes("внутрибанковский перевод между счетами") ||
+    desc.includes("погашение од") ||
+    desc.includes("погашение процентов") ||
+    desc.includes("погашение задолженности") ||
+    (/\bпогашение\b/.test(desc) &&
+      (/\bдог\b/.test(desc) ||
+        /\bдоговор\b/.test(desc) ||
+        desc.includes("pumcar") ||
+        desc.includes("кредит")))
+  ) {
+    return "transfer";
+  }
+
   if (
     cat.includes("снятие") ||
     cat.includes("наличн") ||
     desc.includes("снятие наличных") ||
     desc.includes("atm") ||
-    desc.includes("банкомат")
+    desc.includes("банкомат") ||
+    // Сбер часто пишет «Прочие операции», но MCC 6010/6011 = ATM
+    mcc === "6010" ||
+    mcc === "6011"
   ) {
     return "withdrawal";
   }
+
+  // Внесение наличных в банкомат — пополнение счёта, не «доход».
+  if (
+    desc.includes("внесение средств") ||
+    desc.includes("внесение наличных") ||
+    desc.includes("cashin")
+  ) {
+    return "transfer";
+  }
+
   if (params.signed.sign < 0) return "expense";
   return "income";
 }
@@ -325,6 +420,7 @@ export async function parseSberXlsxArrayBuffer(buf: ArrayBuffer): Promise<SberPa
       signed,
       bankCategory,
       description: description ?? "",
+      mcc,
     });
 
     const amount = signed.abs;

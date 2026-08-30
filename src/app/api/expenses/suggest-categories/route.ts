@@ -108,12 +108,13 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 export async function POST(req: Request) {
-  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+  const { hasLlmApiKey } = await import("@/lib/agent/llm/models");
+  if (!hasLlmApiKey()) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Автокатегоризация моделью не настроена: задайте OPENROUTER_API_KEY на сервере. Вариант «по истории» работает без ключа.",
+          "Автокатегоризация моделью не настроена: задайте DASHSCOPE_API_KEY или OPENROUTER_API_KEY на сервере. Вариант «по истории» работает без ключа.",
       },
       { status: 503 }
     );

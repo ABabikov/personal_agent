@@ -12,6 +12,8 @@
     "diagnose:llm": "tsx scripts/diagnose-llm.ts",
     "debug:huawei-autolink": "tsx scripts/debug-huawei-autolink.ts",
     "debug:huawei-timezone": "tsx scripts/debug-huawei-timezone.ts",
+    "link:huawei": "tsx scripts/link-huawei-sessions.ts",
+    "link:huawei:dry": "tsx scripts/link-huawei-sessions.ts --dry-run",
     "seed:expenses": "tsx scripts/seed-expenses-from-money-manager.ts",
     "seed:expenses:dry": "tsx scripts/seed-expenses-from-money-manager.ts --dry-run",
     "backfill:gym-calories": "tsx scripts/backfill-gym-calories.ts",

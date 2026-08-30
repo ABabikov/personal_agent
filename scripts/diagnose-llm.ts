@@ -9,7 +9,7 @@
  * Запуск:
  *   npm run diagnose:llm
  *
- * .env: OPENROUTER_API_KEY (обязателен). Опционально OPENROUTER_LLM_MODEL / *_EMBEDDING_MODEL.
+ * .env: DASHSCOPE_API_KEY или OPENROUTER_API_KEY. Опционально OPENROUTER_LLM_MODEL / *_EMBEDDING_MODEL.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -52,7 +52,10 @@ async function main(): Promise<number> {
   const {
     PRIMARY_LLM_MODEL,
     PRIMARY_EMBEDDING_MODEL,
-    OPENROUTER_BASE_URL,
+    getLlmBaseUrl,
+    getLlmProvider,
+    getApiKey,
+    hasLlmApiKey,
     getAgentMaxCompletionTokens,
     getAgentTemperature,
   } = await import("../src/lib/agent/llm/models");
@@ -60,52 +63,63 @@ async function main(): Promise<number> {
   const { embedText } = await import("../src/lib/agent/llm/embeddings");
 
   let problems = 0;
+  const provider = getLlmProvider();
+  const baseUrl = getLlmBaseUrl();
 
   console.log(`\n${DIM}=== Конфигурация ===${RESET}`);
+  console.log(`  Провайдер:          ${provider}`);
+  console.log(`  Base URL:           ${baseUrl}`);
   console.log(`  Основная модель:    ${PRIMARY_LLM_MODEL}`);
   console.log(`  Модель эмбеддингов: ${PRIMARY_EMBEDDING_MODEL}`);
   console.log(`  max_tokens:         ${getAgentMaxCompletionTokens()}`);
   console.log(`  temperature:        ${getAgentTemperature()}`);
 
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) {
-    console.log(`\n${bad("OPENROUTER_API_KEY не задан в .env — агент работать не будет.")}`);
+  if (!hasLlmApiKey()) {
+    console.log(
+      `\n${bad("Нет ключа LLM в .env (DASHSCOPE_API_KEY / QWEN_API_KEY / OPENROUTER_API_KEY) — агент работать не будет.")}`
+    );
     return 1;
   }
+  const apiKey = getApiKey();
 
-  // 1) Баланс ключа.
-  console.log(`\n${DIM}=== 1. Баланс OpenRouter ===${RESET}`);
-  try {
-    const r = await fetch(`${OPENROUTER_BASE_URL}/key`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!r.ok) {
-      console.log(bad(`GET /key → HTTP ${r.status}. Ключ невалиден или нет доступа.`));
-      problems++;
-    } else {
-      const j = (await r.json()) as {
-        data?: {
-          label?: string;
-          usage?: number;
-          limit?: number | null;
-          limit_remaining?: number | null;
-          is_free_tier?: boolean;
-        };
-      };
-      const d = j.data ?? {};
-      const limit = d.limit == null ? "без лимита" : `$${d.limit}`;
-      const remaining = d.limit_remaining == null ? "—" : `$${d.limit_remaining}`;
-      console.log(ok(`Ключ валиден${d.label ? ` (${d.label})` : ""}.`));
-      console.log(`  Потрачено: $${d.usage ?? 0} · Лимит: ${limit} · Остаток: ${remaining}`);
-      if (d.is_free_tier) console.log(warn("Ключ на free-tier — основные платные модели могут давать 402."));
-      if (d.limit_remaining != null && d.limit_remaining <= 0) {
-        console.log(bad("Остаток ≤ 0 — это и есть причина молчаливого даунгрейда на дешёвые модели."));
+  // 1) Баланс ключа (только OpenRouter имеет /key).
+  if (provider === "openrouter") {
+    console.log(`\n${DIM}=== 1. Баланс OpenRouter ===${RESET}`);
+    try {
+      const r = await fetch(`${baseUrl}/key`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!r.ok) {
+        console.log(bad(`GET /key → HTTP ${r.status}. Ключ невалиден или нет доступа.`));
         problems++;
+      } else {
+        const j = (await r.json()) as {
+          data?: {
+            label?: string;
+            usage?: number;
+            limit?: number | null;
+            limit_remaining?: number | null;
+            is_free_tier?: boolean;
+          };
+        };
+        const d = j.data ?? {};
+        const limit = d.limit == null ? "без лимита" : `$${d.limit}`;
+        const remaining = d.limit_remaining == null ? "—" : `$${d.limit_remaining}`;
+        console.log(ok(`Ключ валиден${d.label ? ` (${d.label})` : ""}.`));
+        console.log(`  Потрачено: $${d.usage ?? 0} · Лимит: ${limit} · Остаток: ${remaining}`);
+        if (d.is_free_tier) console.log(warn("Ключ на free-tier — основные платные модели могут давать 402."));
+        if (d.limit_remaining != null && d.limit_remaining <= 0) {
+          console.log(bad("Остаток ≤ 0 — это и есть причина молчаливого даунгрейда на дешёвые модели."));
+          problems++;
+        }
       }
+    } catch (e) {
+      console.log(bad(`Не удалось запросить /key: ${e instanceof Error ? e.message : String(e)}`));
+      problems++;
     }
-  } catch (e) {
-    console.log(bad(`Не удалось запросить /key: ${e instanceof Error ? e.message : String(e)}`));
-    problems++;
+  } else {
+    console.log(`\n${DIM}=== 1. Провайдер DashScope/Qwen ===${RESET}`);
+    console.log(ok(`Ключ задан (проверка — через chat/embeddings ниже).`));
   }
 
   // 2) Реально отвечает основная модель?

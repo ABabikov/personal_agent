@@ -1,12 +1,54 @@
 /**
- * Конфиг LLM/embedding-моделей и цепочки фоллбеков для OpenRouter.
- * Идейно повторяет систему фоллбеков из PD_Questions (services/estimator/app/extraction/llm_client.py).
+ * Конфиг LLM/embedding-моделей и цепочки фоллбеков.
+ * Провайдер: OpenRouter или Qwen (DashScope OpenAI-compatible).
  */
 
-export const OPENROUTER_BASE_URL =
-  process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
+export type LlmProvider = "openrouter" | "dashscope";
+
+/** Явно: LLM_PROVIDER=qwen|dashscope|openrouter; иначе авто по ключу/URL. */
+export function getLlmProvider(): LlmProvider {
+  const explicit = process.env.LLM_PROVIDER?.trim().toLowerCase();
+  if (explicit === "qwen" || explicit === "dashscope") return "dashscope";
+  if (explicit === "openrouter") return "openrouter";
+
+  if (process.env.DASHSCOPE_API_KEY?.trim() || process.env.QWEN_API_KEY?.trim()) {
+    return "dashscope";
+  }
+  const base =
+    process.env.LLM_BASE_URL?.trim() || process.env.OPENROUTER_BASE_URL?.trim() || "";
+  if (/dashscope|aliyuncs|qwen/i.test(base)) return "dashscope";
+  return "openrouter";
+}
+
+const DASHSCOPE_INTL_BASE =
+  "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1";
+
+/** Base URL без завершающего слэша (…/v1). */
+export function getLlmBaseUrl(): string {
+  const override =
+    process.env.LLM_BASE_URL?.trim() || process.env.OPENROUTER_BASE_URL?.trim();
+  if (override) return override.replace(/\/+$/, "");
+  return getLlmProvider() === "dashscope"
+    ? DASHSCOPE_INTL_BASE
+    : OPENROUTER_DEFAULT_BASE;
+}
+
+/** @deprecated используй getLlmBaseUrl() — оставлен для старых импортов. */
+export const OPENROUTER_BASE_URL = getLlmBaseUrl();
 
 export function getApiKey(): string {
+  const provider = getLlmProvider();
+  if (provider === "dashscope") {
+    const key =
+      process.env.QWEN_API_KEY?.trim() || process.env.DASHSCOPE_API_KEY?.trim();
+    if (!key) {
+      throw new Error(
+        "QWEN_API_KEY (или DASHSCOPE_API_KEY) is not set — нужен ключ Qwen/DashScope"
+      );
+    }
+    return key;
+  }
   const key = process.env.OPENROUTER_API_KEY?.trim();
   if (!key) {
     throw new Error("OPENROUTER_API_KEY is not set");
@@ -14,12 +56,69 @@ export function getApiKey(): string {
   return key;
 }
 
-/** Primary LLM-модель для агента (Sonnet — лучше для tool-calling и сложных диалогов). */
-export const PRIMARY_LLM_MODEL =
-  process.env.OPENROUTER_LLM_MODEL?.trim() || "anthropic/claude-sonnet-4";
+export function hasLlmApiKey(): boolean {
+  try {
+    getApiKey();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function defaultPrimaryLlm(): string {
+  return getLlmProvider() === "dashscope"
+    ? "qwen-plus"
+    : "anthropic/claude-sonnet-4";
+}
+
+function defaultLlmFallbacks(): string[] {
+  return getLlmProvider() === "dashscope"
+    ? ["qwen-turbo", "qwen-max"]
+    : ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"];
+}
+
+function defaultEmbeddingModel(): string {
+  // pgvector в проекте = 1536. У Qwen доступен text-embedding-v3 (≤1024) —
+  // для совместимости эмбеддинги по умолчанию остаются на OpenRouter.
+  return "openai/text-embedding-3-large";
+}
 
 /**
- * Цепочка фоллбеков: только стабильные id с OpenRouter (без «:free» — такие модели часто снимают).
+ * Эндпоинт для embeddings. При чате через Qwen память всё равно идёт через OpenRouter
+ * (нужны 1536 dims под существующий pgvector), если есть OPENROUTER_API_KEY.
+ */
+export function getEmbeddingEndpoint(): { baseUrl: string; apiKey: string } {
+  const force = process.env.EMBEDDING_PROVIDER?.trim().toLowerCase();
+  const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
+
+  const useOpenRouter =
+    force === "openrouter" ||
+    (force !== "dashscope" &&
+      getLlmProvider() === "dashscope" &&
+      Boolean(openrouterKey));
+
+  if (useOpenRouter) {
+    if (!openrouterKey) {
+      throw new Error(
+        "OPENROUTER_API_KEY нужен для embeddings (1536d). Либо задай ключ, либо EMBEDDING_PROVIDER=dashscope"
+      );
+    }
+    return { baseUrl: OPENROUTER_DEFAULT_BASE, apiKey: openrouterKey };
+  }
+
+  return { baseUrl: getLlmBaseUrl(), apiKey: getApiKey() };
+}
+
+export const EMBEDDING_FALLBACKS: string[] = [
+  "openai/text-embedding-3-small",
+];
+
+/** Primary LLM-модель для агента. */
+export const PRIMARY_LLM_MODEL =
+  process.env.OPENROUTER_LLM_MODEL?.trim() || defaultPrimaryLlm();
+
+/**
+ * Цепочка фоллбеков.
  * Переопределение: OPENROUTER_LLM_FALLBACKS=m1,m2,m3
  */
 function parseFallbacksFromEnv(): string[] | null {
@@ -32,19 +131,13 @@ function parseFallbacksFromEnv(): string[] | null {
   return list.length > 0 ? list : null;
 }
 
-const DEFAULT_LLM_FALLBACKS: string[] = [
-  "openai/gpt-4o-mini",
-  "google/gemini-2.0-flash-001",
-  "deepseek/deepseek-chat",
-];
-
 export const LLM_FALLBACKS: string[] =
-  parseFallbacksFromEnv() ?? DEFAULT_LLM_FALLBACKS;
+  parseFallbacksFromEnv() ?? defaultLlmFallbacks();
 
 /**
  * Потолок completion-токенов на один запрос. 4096 — чтобы развёрнутый тренерский разбор не
- * обрезался по finish_reason="length" (см. docs/features/agent-core/audit.md, находка #1).
- * При малом балансе OpenRouter можно уменьшить через OPENROUTER_MAX_COMPLETION_TOKENS.
+ * обрезался по finish_reason="length".
+ * При малом балансе можно уменьшить через OPENROUTER_MAX_COMPLETION_TOKENS.
  */
 const DEFAULT_MAX_COMPLETION_TOKENS = 4096;
 
@@ -56,10 +149,6 @@ export function getAgentMaxCompletionTokens(): number {
   return Math.min(8192, Math.max(64, n));
 }
 
-/**
- * Температура агента. Чуть выше нуля — живее и теплее для коуч-диалога, но всё ещё
- * детерминирована для расчётов. Переопределяется OPENROUTER_TEMPERATURE (clamp 0..2).
- */
 const DEFAULT_AGENT_TEMPERATURE = 0.4;
 
 export function getAgentTemperature(): number {
@@ -71,9 +160,7 @@ export function getAgentTemperature(): number {
 }
 
 export const PRIMARY_EMBEDDING_MODEL =
-  process.env.OPENROUTER_EMBEDDING_MODEL?.trim() || "openai/text-embedding-3-large";
-
-export const EMBEDDING_FALLBACKS: string[] = ["openai/text-embedding-3-small"];
+  process.env.OPENROUTER_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel();
 
 export const EMBEDDING_DIMENSIONS = 1536;
 

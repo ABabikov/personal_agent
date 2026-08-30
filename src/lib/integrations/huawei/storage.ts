@@ -82,18 +82,23 @@ export async function listUnlinkedSessions(
     .eq("user_id", userId)
     .eq("source", "huawei")
     .order("started_at", { ascending: false })
-    .limit(limit * 2);
+    .limit(Math.max(limit * 3, 60));
   if (sErr) throw new Error(sErr.message);
+
+  const sessionList = sessions ?? [];
+  if (sessionList.length === 0) return [];
 
   const { data: links, error: lErr } = await sb
     .from("workout_device_links")
-    .select("device_session_id");
+    .select("device_session_id")
+    .in(
+      "device_session_id",
+      sessionList.map((s) => s.id)
+    );
   if (lErr) throw new Error(lErr.message);
 
   const linked = new Set((links ?? []).map((l) => l.device_session_id));
-  return (sessions ?? [])
-    .filter((s) => !linked.has(s.id))
-    .slice(0, limit);
+  return sessionList.filter((s) => !linked.has(s.id)).slice(0, limit);
 }
 
 export async function listWorkoutsForDate(

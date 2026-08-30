@@ -10,6 +10,7 @@ import {
   mergeAgentDiscoveryPatch,
   parseRecipeDiscoveryForAgentPayload,
 } from "./recipeDiscoveryStorage";
+import type { WeekPlan, WeekPlanEntry } from "./weekPlan";
 
 export type MealPlanAgentPayload = {
   targets: MealPlanTargets;
@@ -17,6 +18,8 @@ export type MealPlanAgentPayload = {
   plan: PlanLine[];
   /** Источники рецептов в сети, предпочтения и хвост истории (анти-повторы). */
   recipeDiscovery: RecipeDiscoveryForAgent;
+  /** План по дням/слотам (опционально — для агента и автозаполнения). */
+  weekPlan?: WeekPlan;
   summary: {
     planTotalsKcal: number;
     planTotalsProteinG: number;
@@ -137,7 +140,8 @@ export function buildMealPlanPayload(
   targets: MealPlanTargets,
   staples: string,
   plan: PlanLine[],
-  recipeDiscovery: RecipeDiscoveryForAgent
+  recipeDiscovery: RecipeDiscoveryForAgent,
+  weekPlan?: WeekPlan
 ): MealPlanAgentPayload {
   const t = planTotalsFromLines(plan);
   return {
@@ -145,6 +149,7 @@ export function buildMealPlanPayload(
     staples: staples.slice(0, 12000),
     plan,
     recipeDiscovery,
+    ...(weekPlan ? { weekPlan } : {}),
     summary: {
       planTotalsKcal: t.kcal,
       planTotalsProteinG: t.proteinG,
@@ -157,6 +162,32 @@ export function buildMealPlanPayload(
   };
 }
 
+function parseWeekPlanLoose(raw: unknown): WeekPlan | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const weekStart = typeof o.weekStart === "string" ? o.weekStart.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return undefined;
+  const entries: WeekPlanEntry[] = [];
+  if (Array.isArray(o.entries)) {
+    for (const item of o.entries) {
+      if (!item || typeof item !== "object") continue;
+      const e = item as Record<string, unknown>;
+      const date = typeof e.date === "string" ? e.date.trim() : "";
+      const slotId = typeof e.slotId === "string" ? e.slotId.trim() : "";
+      const recipeId = typeof e.recipeId === "string" ? e.recipeId.trim() : "";
+      const portions = Number(e.portions);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !slotId || !recipeId || !Number.isFinite(portions)) continue;
+      entries.push({
+        date,
+        slotId,
+        recipeId,
+        portions: clamp(portions, 0.25, 32),
+      });
+    }
+  }
+  return { weekStart, locked: Boolean(o.locked), entries: entries.slice(0, 200) };
+}
+
 export function mergeMealPlanPayload(
   base: MealPlanAgentPayload,
   patch: {
@@ -164,6 +195,7 @@ export function mergeMealPlanPayload(
     staples?: unknown;
     plan?: unknown;
     recipeDiscovery?: unknown;
+    weekPlan?: unknown;
   }
 ): { ok: true; merged: MealPlanAgentPayload } | { ok: false; error: string } {
   let targets = base.targets;
@@ -198,7 +230,14 @@ export function mergeMealPlanPayload(
     });
   }
 
-  return { ok: true, merged: buildMealPlanPayload(targets, staples, plan, recipeDiscovery) };
+  let weekPlan = base.weekPlan;
+  if (patch.weekPlan !== undefined) {
+    const w = parseWeekPlanLoose(patch.weekPlan);
+    if (!w) return { ok: false, error: "Некорректный weekPlan." };
+    weekPlan = w;
+  }
+
+  return { ok: true, merged: buildMealPlanPayload(targets, staples, plan, recipeDiscovery, weekPlan) };
 }
 
 /** Разбор JSON из тела POST /api/chat (поле mealPlan). */
@@ -213,5 +252,6 @@ export function safeParseClientMealPlanPayload(raw: unknown): MealPlanAgentPaylo
   const t = mergeTargetsPartial(DEFAULT_TARGETS, o.targets);
   if (!t) return null;
   const recipeDiscovery = parseRecipeDiscoveryForAgentPayload(o.recipeDiscovery);
-  return buildMealPlanPayload(t, o.staples, plan, recipeDiscovery);
+  const weekPlan = parseWeekPlanLoose(o.weekPlan);
+  return buildMealPlanPayload(t, o.staples, plan, recipeDiscovery, weekPlan);
 }

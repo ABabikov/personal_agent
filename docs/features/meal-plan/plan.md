@@ -108,4 +108,6 @@
 ## Связь с текущим кодом
 
 - Спайк UI: `/meal-plan`, `src/components/meal-plan/meal-plan-page.tsx`, `src/lib/features/meal-plan/*` (сиды, слияние, localStorage).
-- **Чат:** `meal_plan.ts`, передача `mealPlan` в API, `mealPlanChatApply.ts`, правки `loop.ts` / `route.ts` / `system.ts`.
+- **Автозаполнение недели:** `generateWeekPlan.ts` (алгоритм) + `generateWeekPlanLlm.ts` (LLM) + `POST /api/meal-plan/generate-week`; UI — кнопки на карточке недели.
+- **Чат:** `meal_plan.ts` (`get_` / `generate_meal_week_plan` / `set_`), передача `mealPlan` (+ `weekPlan`) в API, `mealPlanChatApply.ts`, правки `loop.ts` / `route.ts` / `system.ts`.
+- Модель рациона: env `OPENROUTER_MEAL_PLAN_MODEL` (иначе primary OpenRouter).

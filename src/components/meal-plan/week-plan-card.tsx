@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Lock, Plus, Trash2, Unlock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Plus, Sparkles, Trash2, Unlock, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { recipeById } from "@/lib/features/meal-plan/recipes";
@@ -30,6 +30,10 @@ type WeekPlanCardProps = {
   onLock: () => void;
   onUnlock: () => void;
   onShiftWeek: (delta: number) => void;
+  generateLoading?: boolean;
+  useLlm?: boolean;
+  onUseLlmChange?: (v: boolean) => void;
+  onGenerate?: (mode: "fill-empty" | "replace-all") => void;
 };
 
 export function WeekPlanCard({
@@ -41,6 +45,10 @@ export function WeekPlanCard({
   onLock,
   onUnlock,
   onShiftWeek,
+  generateLoading,
+  useLlm = true,
+  onUseLlmChange,
+  onGenerate,
 }: WeekPlanCardProps) {
   const weekDates = datesForWeek(weekPlan.weekStart);
 
@@ -56,8 +64,8 @@ export function WeekPlanCard({
           План на неделю
         </CardTitle>
         <p className="text-xs text-muted-foreground font-normal leading-snug">
-          Раскладывайте блюда по дням и слотам из поиска или каталога. Когда готово — «Зафиксировать неделю»:
-          слоты заблокируются, список покупок считается по этой неделе.
+          Автозаполнение подгоняет порции под слоты и КБЖУ; с AI — ещё и разнообразие кухонь. Когда готово —
+          «Зафиксировать неделю»: слоты заблокируются, список покупок считается по этой неделе.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 pt-3">
@@ -95,6 +103,52 @@ export function WeekPlanCard({
             </Button>
           )}
         </div>
+        {onGenerate && !weekPlan.locked ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border/50 bg-card/20 px-2.5 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={generateLoading}
+                onClick={() => onGenerate("fill-empty")}
+              >
+                {useLlm ? <Sparkles className="size-3.5" /> : <Wand2 className="size-3.5" />}
+                {generateLoading ? "Составляю…" : "Составить неделю"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={generateLoading}
+                onClick={() => {
+                  if (
+                    weekPlan.entries.length > 0 &&
+                    !window.confirm("Перезаписать все слоты этой недели?")
+                  ) {
+                    return;
+                  }
+                  onGenerate("replace-all");
+                }}
+              >
+                Пересобрать всё
+              </Button>
+              <label className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-primary"
+                  checked={useLlm}
+                  disabled={generateLoading}
+                  onChange={(e) => onUseLlmChange?.(e.target.checked)}
+                />
+                Умная модель (AI)
+              </label>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              «Составить» заполняет только пустые слоты. Без AI — мгновенный алгоритм; с AI — доработка
+              разнообразия через LLM (нужен OPENROUTER_API_KEY).
+            </p>
+          </div>
+        ) : null}
         {pickSlot && !weekPlan.locked ? (
           <p className="text-[11px] text-primary border border-glow-primary/30 rounded-md px-2 py-1.5">
             Выберите рецепт в каталоге ниже для{" "}

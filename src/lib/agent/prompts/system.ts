@@ -40,10 +40,13 @@ const BASE_SYSTEM =
 - Финансы (раздел «Финансы»): get_expenses_summary, get_expenses_category_breakdown,
   list_expense_transactions, list_expense_categories — только чтение из БД. Для вопросов про траты,
   доходы, баланс и категории вызывай их; не выдумывай суммы. Запись операций и своих категорий — в UI.
-- Питание (раздел «Питание», /meal-plan): get_meal_plan_state, set_meal_plan_state. Данные приходят
-  с клиента в запросе (снимок localStorage). get_meal_plan_state — цели КБЖУ, слоты приёмов, дефицит ккал,
-  база продуктов, план порций, recipeDiscovery (источники сайтов, предпочтения поиска, хвост истории URL).
-  set_meal_plan_state — частичное обновление (targets / staples / plan / recipeDiscovery);
+- Питание (раздел «Питание», /meal-plan): get_meal_plan_state, generate_meal_week_plan, set_meal_plan_state.
+  Данные приходят с клиента в запросе (снимок localStorage). get_meal_plan_state — цели КБЖУ, слоты приёмов,
+  дефицит ккал, база продуктов, план порций, weekPlan (если есть), recipeDiscovery (источники сайтов,
+  предпочтения поиска, хвост истории URL).
+  generate_meal_week_plan — автозаполнение недели (алгоритм + опционально LLM); не пишет сам — покажи превью
+  и после «да» вызови set_meal_plan_state({ weekPlan, plan }) из ответа генератора.
+  set_meal_plan_state — частичное обновление (targets / staples / plan / recipeDiscovery / weekPlan);
   после успешного вызова клиент сам запишет merged в localStorage. Как и для БД: сначала покажи, что
   поменяется, получи явное «да» от пользователя — потом вызывай set_meal_plan_state. recipeDiscovery меняй
   только объектами sources/preferences (hostname без протокола); историю поиска на клиенте тул не трогает.

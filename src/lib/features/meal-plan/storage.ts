@@ -123,7 +123,8 @@ export function readMealPlanSnapshotForAgent(): MealPlanAgentPayload | null {
   if (typeof window === "undefined") return null;
   try {
     const discovery = toAgentRecipeDiscovery(loadRecipeDiscoveryState());
-    return buildMealPlanPayload(loadTargets(), loadStaples(), loadPlan(), discovery);
+    const week = loadWeekMealPlan();
+    return buildMealPlanPayload(loadTargets(), loadStaples(), loadPlan(), discovery, week);
   } catch {
     return null;
   }
@@ -138,6 +139,9 @@ export function writeMealPlanSnapshotFromAgent(merged: MealPlanAgentPayload): vo
     saveTargets(merged.targets);
     saveStaples(merged.staples);
     savePlan(merged.plan);
+    if (merged.weekPlan) {
+      saveWeekMealPlan(merged.weekPlan);
+    }
     if (merged.recipeDiscovery) {
       saveRecipeSources(merged.recipeDiscovery.sources);
       saveRecipePreferences(merged.recipeDiscovery.preferences);

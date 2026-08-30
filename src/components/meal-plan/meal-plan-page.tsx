@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { macroDistanceScore, sortRecipesByFit } from "@/lib/features/meal-plan/macrosFit";
+import { macroDistanceScore, sortRecipesByFit, targetForSlot } from "@/lib/features/meal-plan/macrosFit";
 import { getAllRecipes, invalidateSavedRecipesCache, isSavedWebRecipe, recipeById } from "@/lib/features/meal-plan/recipes";
 import { upsertSavedRecipeFromSearchHit } from "@/lib/features/meal-plan/savedRecipes";
 import { WeekPlanCard } from "@/components/meal-plan/week-plan-card";
@@ -139,6 +139,8 @@ export function MealPlanPage() {
   const [savedVersion, setSavedVersion] = useState(0);
   const [planToast, setPlanToast] = useState<string | null>(null);
   const [pickSlot, setPickSlot] = useState<{ date: string; slotId: string } | null>(null);
+  const [generateLoading, setGenerateLoading] = useState(false);
+  const [useLlmGenerate, setUseLlmGenerate] = useState(true);
 
   useEffect(() => {
     setStaples(loadStaples());
@@ -193,7 +195,16 @@ export function MealPlanPage() {
     return getAllRecipes();
   }, [savedVersion]);
 
-  const sortedRecipes = useMemo(() => sortRecipesByFit(allRecipes, targets), [allRecipes, targets]);
+  const pickSlotIndex = useMemo(() => {
+    if (!pickSlot) return undefined;
+    const i = targets.mealSlots.findIndex((s) => s.id === pickSlot.slotId);
+    return i >= 0 ? i : undefined;
+  }, [pickSlot, targets.mealSlots]);
+
+  const sortedRecipes = useMemo(
+    () => sortRecipesByFit(allRecipes, targets, pickSlotIndex),
+    [allRecipes, targets, pickSlotIndex]
+  );
   const weekDates = useMemo(() => datesForWeek(weekPlan.weekStart), [weekPlan.weekStart]);
   const planLinesForAggregate = useMemo(() => {
     const fromWeek = weekPlanToPlanLines(weekPlan);
@@ -207,14 +218,9 @@ export function MealPlanPage() {
   );
 
   const perMeal = useMemo(() => {
-    const n = Math.max(1, targets.mealSlots.length);
-    return {
-      kcal: targets.kcal / n,
-      proteinG: targets.proteinG / n,
-      fatG: targets.fatG / n,
-      carbsG: targets.carbsG / n,
-    };
-  }, [targets]);
+    const idx = pickSlotIndex ?? Math.min(1, Math.max(0, targets.mealSlots.length - 1));
+    return targetForSlot(targets, idx);
+  }, [targets, pickSlotIndex]);
 
   function updateMealSlots(next: MealSlot[]) {
     const trimmed = next
@@ -315,6 +321,84 @@ export function MealPlanPage() {
   function unlockWeek() {
     setWeekPlanAndSave({ ...weekPlan, locked: false });
     showPlanToast("Неделя разблокирована.");
+  }
+
+  async function generateWeek(mode: "fill-empty" | "replace-all") {
+    if (weekPlan.locked) {
+      showPlanToast("Разблокируйте неделю, чтобы автозаполнить.");
+      return;
+    }
+    if (allRecipes.length < 1) {
+      showPlanToast("Каталог рецептов пуст.");
+      return;
+    }
+    setGenerateLoading(true);
+    try {
+      const res = await fetch("/api/meal-plan/generate-week", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targets,
+          weekPlan: {
+            weekStart: weekPlan.weekStart,
+            locked: weekPlan.locked,
+            entries: weekPlan.entries,
+          },
+          recipes: allRecipes.map((r) => ({
+            id: r.id,
+            name: r.name,
+            teaser: r.teaser,
+            minutes: r.minutes,
+            macrosPerServing: r.macrosPerServing,
+            ingredients: r.ingredients,
+          })),
+          mode,
+          useLlm: useLlmGenerate,
+          preferencesNotes: recipeDisc.preferences.notes,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        data?: {
+          weekPlan: WeekPlan;
+          filled: number;
+          source: "llm" | "algorithm";
+          modelUsed?: string;
+          llmError?: string;
+          daySummaries?: { date: string; kcal: number; proteinG: number; targetKcal: number }[];
+        };
+      };
+      if (!res.ok || !json.ok || !json.data?.weekPlan) {
+        showPlanToast(json.error ?? "Не удалось составить неделю.");
+        return;
+      }
+      const next = {
+        ...json.data.weekPlan,
+        locked: false,
+      };
+      setWeekPlanAndSave(next);
+      // синхронизируем черновик порций с неделей
+      setPlanAndSave(weekPlanToPlanLines(next));
+      const avg =
+        json.data.daySummaries && json.data.daySummaries.length > 0
+          ? Math.round(
+              json.data.daySummaries.reduce((a, d) => a + d.kcal, 0) / json.data.daySummaries.length
+            )
+          : null;
+      const src =
+        json.data.source === "llm"
+          ? `AI${json.data.modelUsed ? ` (${json.data.modelUsed.split("/").pop()})` : ""}`
+          : "алгоритм";
+      const hint = json.data.llmError ? ` · ${json.data.llmError}` : "";
+      showPlanToast(
+        `Заполнено слотов: ${json.data.filled} · ${src}${avg != null ? ` · ~${avg} ккал/день` : ""}${hint}`
+      );
+    } catch {
+      showPlanToast("Сеть или сервер недоступны — попробуйте ещё раз.");
+    } finally {
+      setGenerateLoading(false);
+    }
   }
 
   function changePortions(recipeId: string, delta: number) {
@@ -469,7 +553,7 @@ export function MealPlanPage() {
   }
 
   function renderRecipeCard(r: Recipe) {
-    const score = macroDistanceScore(r, targets);
+    const score = macroDistanceScore(r, targets, pickSlotIndex);
     const open = expanded === r.id;
     const fromWeb = isSavedWebRecipe(r.id);
     return (
@@ -621,7 +705,7 @@ export function MealPlanPage() {
             <div className="text-xs font-medium text-foreground">Приёмы в день (порядок важен)</div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               Например: обед → перекус после обеда → ужин → перекус после ужина. Суточные ккал и БЖУ делятся
-              поровну между слотами для подбора рецептов (позже можно веса по слотам).
+              по весам слотов (обед/ужин больше, перекусы меньше) для подбора рецептов.
             </p>
             <ul className="space-y-1.5">
               {targets.mealSlots.map((slot, index) => (
@@ -690,8 +774,11 @@ export function MealPlanPage() {
           </div>
 
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Ориентир на один слот (среднее по дню, для подбора):{" "}
-            <span className="text-foreground font-medium">{macroLine(perMeal)}</span>
+            Ориентир на слот
+            {pickSlot
+              ? ` «${targets.mealSlots.find((s) => s.id === pickSlot.slotId)?.label ?? "приём"}»`
+              : " (типовой основной)"}
+            : <span className="text-foreground font-medium">{macroLine(perMeal)}</span>
             <span className="block mt-1 text-[10px] text-muted-foreground/90">
               Порядок: {targets.mealSlots.map((s) => s.label).join(" → ")}
             </span>
@@ -1000,6 +1087,10 @@ export function MealPlanPage() {
         onLock={lockCurrentWeek}
         onUnlock={unlockWeek}
         onShiftWeek={shiftWeek}
+        generateLoading={generateLoading}
+        useLlm={useLlmGenerate}
+        onUseLlmChange={setUseLlmGenerate}
+        onGenerate={generateWeek}
       />
 
       <Card size="sm">
