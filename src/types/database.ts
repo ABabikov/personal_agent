@@ -70,6 +70,7 @@ export interface Database {
           total_tonnage: number | null;
           total_distance: number | null;
           calories_estimated: number | null;
+          duration_minutes: number | null;
           notes: string | null;
           status: "active" | "completed";
           created_at: string;
@@ -78,11 +79,17 @@ export interface Database {
         };
         Insert: Omit<
           Database["public"]["Tables"]["workouts"]["Row"],
-          "id" | "created_at" | "deleted_at" | "deleted_reason" | "status"
+          | "id"
+          | "created_at"
+          | "deleted_at"
+          | "deleted_reason"
+          | "status"
+          | "duration_minutes"
         > & {
           status?: "active" | "completed";
           deleted_at?: string | null;
           deleted_reason?: string | null;
+          duration_minutes?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["workouts"]["Insert"]>;
         Relationships: [

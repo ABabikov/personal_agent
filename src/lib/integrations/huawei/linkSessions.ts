@@ -11,7 +11,9 @@ import {
   sessionDateInZone,
 } from "@/lib/integrations/huawei/timezone";
 import { getSupabaseServer } from "@/lib/db/supabase-server";
+import type { Database } from "@/types/database";
 
+type WorkoutInsert = Database["public"]["Tables"]["workouts"]["Insert"];
 type Mapped = "gym" | "swim" | "other";
 
 type Candidate = {
@@ -319,7 +321,7 @@ export async function materializeOrphanDeviceSessions(
       .filter(Boolean)
       .join(" · ");
 
-    const insertRow: Record<string, unknown> = {
+    const insertRow: WorkoutInsert = {
       user_id: userId,
       date,
       type: s.activity_type_mapped,
@@ -329,8 +331,8 @@ export async function materializeOrphanDeviceSessions(
       total_tonnage: s.activity_type_mapped === "gym" ? 0 : null,
       total_distance: s.activity_type_mapped === "swim" ? 0 : null,
       calories_estimated: null,
+      ...(durationMin != null ? { duration_minutes: durationMin } : {}),
     };
-    if (durationMin != null) insertRow.duration_minutes = durationMin;
 
     const { data: workout, error: wErr } = await sb
       .from("workouts")
@@ -341,10 +343,10 @@ export async function materializeOrphanDeviceSessions(
     if (wErr || !workout) {
       // Retry without duration_minutes if column missing
       if (wErr?.message.includes("duration_minutes")) {
-        delete insertRow.duration_minutes;
+        const { duration_minutes: _dm, ...withoutDuration } = insertRow;
         const retry = await sb
           .from("workouts")
-          .insert(insertRow)
+          .insert(withoutDuration)
           .select("id")
           .single();
         if (retry.error || !retry.data) {
@@ -452,7 +454,7 @@ export async function materializeOutdoorDeviceSessions(
       .filter(Boolean)
       .join(" · ");
 
-    const insertRow: Record<string, unknown> = {
+    const insertRow: WorkoutInsert = {
       user_id: userId,
       date,
       type: "gym",
@@ -462,8 +464,8 @@ export async function materializeOutdoorDeviceSessions(
       total_tonnage: 0,
       total_distance: null,
       calories_estimated: null,
+      ...(durationMin != null ? { duration_minutes: durationMin } : {}),
     };
-    if (durationMin != null) insertRow.duration_minutes = durationMin;
 
     const { data: workout, error: wErr } = await sb
       .from("workouts")
@@ -473,10 +475,10 @@ export async function materializeOutdoorDeviceSessions(
 
     if (wErr || !workout) {
       if (wErr?.message.includes("duration_minutes")) {
-        delete insertRow.duration_minutes;
+        const { duration_minutes: _dm, ...withoutDuration } = insertRow;
         const retry = await sb
           .from("workouts")
-          .insert(insertRow)
+          .insert(withoutDuration)
           .select("id")
           .single();
         if (retry.error || !retry.data) {

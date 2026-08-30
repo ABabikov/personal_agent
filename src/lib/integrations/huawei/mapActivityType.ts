@@ -50,3 +50,29 @@ export function mapHuaweiActivityType(
   }
   return "other";
 }
+
+/** Числовые sportType из Motion path detail export (см. activityLabels.ts). */
+const MOTION_PATH_SWIM = new Set([6, 102, 104]);
+const MOTION_PATH_GYM = new Set([80]);
+
+/**
+ * Maps Huawei motion-path `sportType` → gym/swim/other.
+ * `opts` — запасной эвристический контекст для неоднозначных кодов (117/218).
+ */
+export function mapHuaweiMotionPathType(
+  sportType: number | null | undefined,
+  opts?: { totalDistanceM?: number; durationMinutes?: number | null }
+): MappedActivityType {
+  if (sportType == null || !Number.isFinite(sportType)) return "other";
+  if (MOTION_PATH_SWIM.has(sportType)) return "swim";
+  if (MOTION_PATH_GYM.has(sportType)) return "gym";
+
+  // 117 «Другое» / 218 Outdoor: короткая сессия без дистанции ≈ зал.
+  if (sportType === 117 || sportType === 218) {
+    const dist = opts?.totalDistanceM ?? 0;
+    const mins = opts?.durationMinutes ?? null;
+    if (dist < 50 && mins != null && mins >= 20 && mins <= 180) return "gym";
+  }
+
+  return "other";
+}
