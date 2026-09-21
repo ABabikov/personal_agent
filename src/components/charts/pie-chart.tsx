@@ -22,6 +22,8 @@ interface PieChartProps {
   /** Форматирование значения для тултипа */
   valueFormat?: (v: number) => string;
   emptyMessage?: string;
+  /** Клик по сектору (id слайса). */
+  onSliceClick?: (id: string) => void;
 }
 
 const VIEW_SIZE = 200;
@@ -63,6 +65,7 @@ export function PieChart({
   centerSubLabel,
   valueFormat = (v) => v.toLocaleString("ru"),
   emptyMessage = "Нет данных",
+  onSliceClick,
 }: PieChartProps) {
   const total = useMemo(
     () => slices.reduce((s, x) => s + Math.max(0, x.value), 0),
@@ -127,7 +130,8 @@ export function PieChart({
               fill={slice.color}
               opacity={hover && !isHover ? 0.45 : 1}
               onMouseEnter={() => setHover({ id: slice.id, cx: hit.x, cy: hit.y })}
-              style={{ cursor: "pointer", transition: "opacity 120ms" }}
+              onClick={() => onSliceClick?.(slice.id)}
+              style={{ cursor: onSliceClick ? "pointer" : "default", transition: "opacity 120ms" }}
             />
           );
         })}

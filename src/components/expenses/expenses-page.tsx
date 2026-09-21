@@ -68,7 +68,7 @@ type KindFilter = "all" | "expense" | "income" | "withdrawal";
 export function ExpensesPage() {
   useRegisterPageChatContext(
     "Финансы",
-    "Вверху — сводка по текущему календарному месяцу и году (все счета). Календарь месяца, операции по дню, фильтры и график по категориям. Можно добавить свою категорию в блоке «Справочник категорий»."
+    "Вверху — сводка выбранного месяца и года (все счета). Календарь, операции по дню, фильтры. Клик по категории в графике показывает операции этой категории за месяц."
   );
 
   const today = new Date();
@@ -94,7 +94,6 @@ export function ExpensesPage() {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [overviewMonth, setOverviewMonth] = useState<ReturnType<typeof totals> | null>(null);
   const [overviewYear, setOverviewYear] = useState<ReturnType<typeof totals> | null>(null);
 
   const [newCatName, setNewCatName] = useState("");
@@ -112,14 +111,9 @@ export function ExpensesPage() {
       setLoading(false);
       return;
     }
-    const clock = new Date();
-    const curY = clock.getFullYear();
-    const curM = clock.getMonth();
-
-    const [mainRes, omRes, oyRes] = await Promise.all([
+    const [mainRes, oyRes] = await Promise.all([
       fetchExpensesPeriod(user.userId, "month", { year, monthIdx0 }),
-      fetchExpensesPeriod(user.userId, "month", { year: curY, monthIdx0: curM }),
-      fetchExpensesPeriod(user.userId, "year", { year: curY }),
+      fetchExpensesPeriod(user.userId, "year", { year }),
     ]);
 
     if ("error" in mainRes) {
@@ -141,8 +135,6 @@ export function ExpensesPage() {
       }
     }
     setData(res.data);
-    if (!("error" in omRes)) setOverviewMonth(totals(omRes.data.transactions));
-    else setOverviewMonth(null);
     if (!("error" in oyRes)) setOverviewYear(totals(oyRes.data.transactions));
     else setOverviewYear(null);
     setLoading(false);
@@ -151,6 +143,11 @@ export function ExpensesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const overviewMonth = useMemo(
+    () => totals(data.transactions),
+    [data.transactions]
+  );
 
   const periodTitle = new Date(year, monthIdx0, 1).toLocaleDateString("ru", {
     month: "long",
@@ -268,11 +265,32 @@ export function ExpensesPage() {
     categoryById,
   ]);
 
+  /** Для круговой диаграммы — без фильтра категории, иначе после клика остаётся один сектор. */
+  const chartTransactions = useMemo<ExpenseTransactionRow[]>(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return data.transactions.filter((t) => {
+      if (accountId && t.account_id !== accountId) return false;
+      if (kindFilter !== "all" && t.kind !== kindFilter) return false;
+      if (q.length > 0) {
+        const hay = [
+          t.description ?? "",
+          t.merchant ?? "",
+          accountById.get(t.account_id)?.name ?? "",
+          t.category_id ? categoryById.get(t.category_id)?.name ?? "" : "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [data.transactions, accountId, kindFilter, searchQuery, accountById, categoryById]);
+
   const kpis = useMemo(() => totals(filteredTransactions), [filteredTransactions]);
 
   const byParent = useMemo(
-    () => expensesByParentCategory(filteredTransactions, data.categories),
-    [filteredTransactions, data.categories]
+    () => expensesByParentCategory(chartTransactions, data.categories),
+    [chartTransactions, data.categories]
   );
 
   const donutSlices: PieSlice[] = useMemo(() => {
@@ -284,7 +302,23 @@ export function ExpensesPage() {
     }));
   }, [byParent]);
 
-  const topRows = useMemo(() => topMerchants(filteredTransactions, 8), [filteredTransactions]);
+  const chartKpis = useMemo(() => totals(chartTransactions), [chartTransactions]);
+  const topRows = useMemo(() => topMerchants(chartTransactions, 8), [chartTransactions]);
+
+  function toggleParentCategory(id: string) {
+    setParentCategoryId((prev) => (prev === id ? "" : id));
+  }
+
+  const categoryTransactions = useMemo(() => {
+    if (!parentCategoryId) return [];
+    return [...filteredTransactions].sort((a, b) =>
+      b.occurred_at.localeCompare(a.occurred_at)
+    );
+  }, [filteredTransactions, parentCategoryId]);
+
+  const selectedParentName = parentCategoryId
+    ? (categoryById.get(parentCategoryId)?.name ?? "Категория")
+    : "";
 
   function shiftMonth(delta: number) {
     let m = monthIdx0 + delta;
@@ -461,12 +495,7 @@ export function ExpensesPage() {
     }
   }
 
-  const calendarNow = new Date();
-  const overviewMonthTitle = new Date(
-    calendarNow.getFullYear(),
-    calendarNow.getMonth(),
-    1
-  ).toLocaleDateString("ru", { month: "long", year: "numeric" });
+  const overviewMonthTitle = periodTitle;
 
   return (
     <div className="space-y-5">
@@ -512,35 +541,35 @@ export function ExpensesPage() {
               <div className="flex justify-between gap-1">
                 <dt className="shrink-0 text-muted-foreground">доход</dt>
                 <dd className="min-w-0 truncate text-right text-foreground">
-                  {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.income ?? 0)}
+                  {loading && data.transactions.length === 0 ? "…" : formatRub(overviewMonth.income)}
                 </dd>
               </div>
               <div className="flex justify-between gap-1">
                 <dt className="shrink-0 text-muted-foreground">расход</dt>
                 <dd className="min-w-0 truncate text-right text-foreground">
-                  {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.expense ?? 0)}
+                  {loading && data.transactions.length === 0 ? "…" : formatRub(overviewMonth.expense)}
                 </dd>
               </div>
               <div className="flex justify-between gap-1">
                 <dt className="shrink-0 text-muted-foreground">баланс</dt>
                 <dd
                   className={`min-w-0 truncate text-right ${
-                    (overviewMonth?.net ?? 0) < 0
+                    (overviewMonth.net ?? 0) < 0
                       ? "text-red-600 dark:text-red-400"
                       : "text-emerald-600 dark:text-emerald-400"
                   }`}
                 >
-                  {loading && overviewMonth == null ? "…" : formatRub(overviewMonth?.net ?? 0)}
+                  {loading && data.transactions.length === 0 ? "…" : formatRub(overviewMonth.net)}
                 </dd>
               </div>
               <div className="flex justify-between gap-1 text-muted-foreground">
                 <dt className="shrink-0">оп.</dt>
-                <dd>{overviewMonth?.count ?? 0}</dd>
+                <dd>{overviewMonth.count}</dd>
               </div>
             </dl>
           </div>
           <div className="min-w-0 pl-0.5">
-            <p className="mb-0.5 truncate text-muted-foreground">С начала {calendarNow.getFullYear()} г.</p>
+            <p className="mb-0.5 truncate text-muted-foreground">За {year} год</p>
             <dl className="space-y-0.5">
               <div className="flex justify-between gap-1">
                 <dt className="shrink-0 text-muted-foreground">доход</dt>
@@ -833,6 +862,9 @@ export function ExpensesPage() {
       <Card>
         <CardContent className="pt-4">
           <h3 className="mb-3 text-sm font-semibold">Расходы по категориям</h3>
+          <p className="mb-3 text-[11px] text-muted-foreground">
+            Нажми категорию — список операций за выбранный месяц.
+          </p>
           {donutSlices.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {loading ? "Загрузка…" : "Нет расходов за период"}
@@ -842,24 +874,96 @@ export function ExpensesPage() {
               <PieChart
                 slices={donutSlices}
                 size={220}
-                centerLabel={formatRub(kpis.expense)}
-                centerSubLabel={`${kpis.count} операций`}
+                centerLabel={formatRub(chartKpis.expense)}
+                centerSubLabel={`${chartKpis.count} операций`}
                 valueFormat={(v) => formatRub(v)}
+                onSliceClick={toggleParentCategory}
               />
               <ul className="grid flex-1 grid-cols-1 gap-1 text-sm">
-                {byParent.map((b, i) => (
-                  <li key={b.parentCategoryId} className="flex items-center gap-2">
-                    <span
-                      className="inline-block size-2.5 shrink-0 rounded-full"
-                      style={{ background: paletteColor(i) }}
-                    />
-                    <span className="flex-1 truncate">{b.parentCategoryName}</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {(b.share * 100).toFixed(1)}%
-                    </span>
-                    <span className="w-24 text-right tabular-nums">{formatRub(b.amount)}</span>
-                  </li>
-                ))}
+                {byParent.map((b, i) => {
+                  const active = parentCategoryId === b.parentCategoryId;
+                  return (
+                    <li key={b.parentCategoryId}>
+                      <button
+                        type="button"
+                        onClick={() => toggleParentCategory(b.parentCategoryId)}
+                        className={`flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-muted/60 ${
+                          active ? "bg-muted" : ""
+                        }`}
+                      >
+                        <span
+                          className="inline-block size-2.5 shrink-0 rounded-full"
+                          style={{ background: paletteColor(i) }}
+                        />
+                        <span className="flex-1 truncate">{b.parentCategoryName}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {(b.share * 100).toFixed(1)}%
+                        </span>
+                        <span className="w-24 text-right tabular-nums">{formatRub(b.amount)}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          {parentCategoryId && (
+            <div className="mt-4 border-t border-border/70 pt-3">
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <h4 className="text-sm font-medium">{selectedParentName}</h4>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => setParentCategoryId("")}
+                >
+                  Сбросить
+                </button>
+              </div>
+              <ul className="max-h-80 space-y-1.5 overflow-y-auto">
+                {categoryTransactions.map((t) => {
+                  const cat = t.category_id ? categoryById.get(t.category_id) : null;
+                  const parent =
+                    cat && cat.parent_id ? categoryById.get(cat.parent_id) : null;
+                  const catLabel = cat
+                    ? parent
+                      ? `${parent.name} / ${cat.name}`
+                      : cat.name
+                    : "—";
+                  const sign = t.kind === "income" ? "+" : t.kind === "expense" ? "−" : "";
+                  const color =
+                    t.kind === "income"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : t.kind === "expense"
+                        ? "text-red-500"
+                        : "text-muted-foreground";
+                  const day = new Date(t.occurred_at).toLocaleDateString("ru", {
+                    day: "numeric",
+                    month: "short",
+                  });
+                  return (
+                    <li
+                      key={t.id}
+                      className="flex items-start justify-between gap-2 rounded-md border border-border/50 px-2 py-1.5 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs text-muted-foreground">{day}</div>
+                        <div className="truncate">{catLabel}</div>
+                        {(t.merchant || t.description) && (
+                          <div className="truncate text-xs text-muted-foreground">
+                            {t.merchant || t.description}
+                          </div>
+                        )}
+                      </div>
+                      <div className={`shrink-0 tabular-nums font-medium ${color}`}>
+                        {sign}
+                        {formatRubFractional(t.amount)}
+                      </div>
+                    </li>
+                  );
+                })}
+                {categoryTransactions.length === 0 && (
+                  <li className="py-2 text-sm text-muted-foreground">Нет операций</li>
+                )}
               </ul>
             </div>
           )}
