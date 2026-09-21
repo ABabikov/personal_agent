@@ -15,6 +15,17 @@ import {
   summarizeChats,
 } from "./session";
 
+function mapMaxLoginError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/unsupported-version/i.test(message)) {
+    return new Error("Max отклонил версию клиента. Подождите минуту и нажмите ещё раз — на сервере обновляется патч.");
+  }
+  if (/region|unavailable|phone\.region/i.test(message)) {
+    return new Error("Max не шлёт SMS с этого сервера (другой регион). Напишите, обойдём.");
+  }
+  return err instanceof Error ? err : new Error(message);
+}
+
 export async function sendMaxSms(phoneRaw: string) {
   const phone = normalizeMaxPhone(phoneRaw);
   if (!phone || phone.length < 12) {
@@ -26,8 +37,12 @@ export async function sendMaxSms(phoneRaw: string) {
   const raw = new RawTransport();
   await raw.connect();
   try {
-    await raw.hello(sess.mobileDeviceId!, sess.mtInstanceId!);
-    const start = await sendPhoneAuthCode(raw, phone);
+    await raw.hello(sess.mobileDeviceId!, sess.mtInstanceId!).catch((err) => {
+      throw mapMaxLoginError(err);
+    });
+    const start = await sendPhoneAuthCode(raw, phone).catch((err) => {
+      throw mapMaxLoginError(err);
+    });
     await savePendingSms({
       smsToken: start.token,
       deviceId: sess.deviceId,
@@ -56,8 +71,12 @@ export async function verifyMaxSms(codeRaw: string, password?: string) {
   const raw = new RawTransport();
   await raw.connect();
   try {
-    await raw.hello(pending.mobileDeviceId, pending.mtInstanceId);
-    const verify = await verifyPhoneAuthCode(raw, code, pending.smsToken);
+    await raw.hello(pending.mobileDeviceId, pending.mtInstanceId).catch((err) => {
+      throw mapMaxLoginError(err);
+    });
+    const verify = await verifyPhoneAuthCode(raw, code, pending.smsToken).catch((err) => {
+      throw mapMaxLoginError(err);
+    });
     let mobileToken = verify.tokenAttrs?.LOGIN?.token;
     if (!mobileToken && verify.passwordChallenge) {
       if (!password) {

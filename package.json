@@ -28,6 +28,7 @@
     "lint": "eslint",
     "setup:kids-bot": "node scripts/setup-kids-bot.mjs",
     "mirror:max-kids": "tsx scripts/max-kids-mirror.ts",
+    "postinstall": "node scripts/patch-max-account-api.mjs",
     "docker:up": "docker compose --env-file .env.docker up -d --build",
     "docker:down": "docker compose down",
     "mobile:sync": "npx cap sync",
