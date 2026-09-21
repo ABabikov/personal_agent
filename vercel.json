@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/kids/max-sync",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

@@ -776,6 +776,32 @@ export interface Database {
           },
         ];
       };
+      kid_max_session: {
+        Row: {
+          id: number;
+          device_id: string | null;
+          login_token: string | null;
+          mobile_device_id: string | null;
+          mt_instance_id: string | null;
+          mobile_login_token: string | null;
+          sms_token: string | null;
+          owner_name: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: number;
+          device_id?: string | null;
+          login_token?: string | null;
+          mobile_device_id?: string | null;
+          mt_instance_id?: string | null;
+          mobile_login_token?: string | null;
+          sms_token?: string | null;
+          owner_name?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_max_session"]["Insert"]>;
+        Relationships: [];
+      };
       kid_chat_attachments: {
         Row: {
           id: string;

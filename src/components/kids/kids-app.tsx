@@ -20,7 +20,9 @@ import {
   todayInfo,
   weekStartMonday,
 } from "@/lib/features/kids-schedule/dates";
+import type { MaxSessionStatus } from "@/lib/integrations/max/types";
 import { KidsAddSheet, type AddKind } from "./kids-add-sheet";
+import { KidsMaxConnect } from "./kids-max-connect";
 
 type Tab = "today" | "week" | "chats";
 
@@ -39,6 +41,9 @@ export function KidsApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncHint, setSyncHint] = useState<string | null>(null);
+  const [maxStatus, setMaxStatus] = useState<MaxSessionStatus | null>(null);
   const today = useMemo(() => todayInfo(), []);
 
   const reload = useCallback(async () => {
@@ -57,6 +62,47 @@ export function KidsApp() {
     if (stored === "boy" || stored === "girl") setKid(stored);
     void reload();
   }, [reload]);
+
+  const maxReady = Boolean(maxStatus?.connected && maxStatus.boyChatId && maxStatus.girlChatId);
+
+  const refreshMaxStatus = useCallback(async () => {
+    const res = await fetch("/api/kids/max-status", { cache: "no-store" });
+    const body = (await res.json()) as MaxSessionStatus;
+    setMaxStatus(body);
+    return body;
+  }, []);
+
+  const pullMaxChats = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/kids/max-sync", { cache: "no-store" });
+      const body = (await res.json()) as { ok?: boolean; error?: string };
+      setSyncHint(body.ok ? null : body.error ?? "Max не ответил");
+      await reload();
+    } catch {
+      setSyncHint("Не удалось связаться с Max");
+    } finally {
+      setSyncing(false);
+    }
+  }, [reload]);
+
+  useEffect(() => {
+    if (tab !== "chats") return;
+    let cancelled = false;
+    void refreshMaxStatus()
+      .then((status) => {
+        if (cancelled) return;
+        if (status.connected && status.boyChatId && status.girlChatId) {
+          return pullMaxChats();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSyncHint("Не удалось проверить Max");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, refreshMaxStatus, pullMaxChats]);
 
   function selectKid(next: KidId) {
     setKid(next);
@@ -286,9 +332,20 @@ export function KidsApp() {
         {tab === "chats" && !loading ? (
           <section className="space-y-3">
             <h1 className="text-xl font-semibold">{KIDS[kid].chatLabel}</h1>
-            {messages.length === 0 ? (
-              <Empty text="Пока пусто. Сюда лягут сообщения из Max, когда подключим зеркало двух чатов." />
-            ) : (
+            {maxStatus && !maxReady ? (
+              <KidsMaxConnect
+                status={maxStatus}
+                onReady={async () => {
+                  await refreshMaxStatus();
+                  await pullMaxChats();
+                }}
+              />
+            ) : null}
+            {syncing ? <p className="text-sm text-stone-500">Подтягиваю чат из Max…</p> : null}
+            {syncHint ? <p className="text-sm text-amber-800">{syncHint}</p> : null}
+            {messages.length === 0 && !syncing && maxReady ? (
+              <Empty text="Пока пусто. Откройте вкладку ещё раз — сервер подтянет историю." />
+            ) : messages.length > 0 ? (
               <ul className="space-y-2">
                 {messages.map((row) => (
                   <li key={row.id} className="rounded-2xl bg-white p-3 shadow-sm">
@@ -304,7 +361,7 @@ export function KidsApp() {
                   </li>
                 ))}
               </ul>
-            )}
+            ) : null}
           </section>
         ) : null}
       </main>

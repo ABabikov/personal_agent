@@ -11,5 +11,5 @@
 | Source | Type | Access |
 |---|---|---|
 | Ручной ввод | UI `/kids` | таблицы `kid_*` |
-| Max, 2 чата | user-session зеркало | `kid_chat_messages` |
+| Max, 2 чата | user-session на Vercel: вход по телефону/SMS в Mini App, poll + cron | `kid_chat_messages`, `kid_max_session` |
 | school.nso.ru | не подключено | — |
