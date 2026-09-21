@@ -9,10 +9,8 @@ type Props = {
 };
 
 export function KidsMaxConnect({ status, onReady }: Props) {
-  const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
-  const [smsSent, setSmsSent] = useState(false);
+  const [maxLink, setMaxLink] = useState<string | null>(null);
   const [chats, setChats] = useState<MaxChatOption[]>([]);
   const [boyChatId, setBoyChatId] = useState(status.boyChatId);
   const [girlChatId, setGirlChatId] = useState(status.girlChatId);
@@ -21,38 +19,55 @@ export function KidsMaxConnect({ status, onReady }: Props) {
 
   const connected = status.connected || chats.length > 0;
 
-  async function postLogin(body: Record<string, string>) {
-    const res = await fetch("/api/kids/max-login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json()) as { ok?: boolean; error?: string; chats?: MaxChatOption[] };
-    if (!res.ok || json.ok === false) throw new Error(json.error ?? "Max не ответил");
-    if (json.chats) setChats(json.chats);
-    return json;
+  function openMax(link: string) {
+    const tg = (
+      window as unknown as {
+        Telegram?: { WebApp?: { openLink?: (url: string) => void } };
+      }
+    ).Telegram?.WebApp;
+    if (tg?.openLink) tg.openLink(link);
+    else window.open(link, "_blank");
   }
 
-  async function sendSms() {
-    setBusy("sms");
+  async function bindViaPhoneSession() {
+    setBusy("link");
     setError(null);
+    setMaxLink(null);
     try {
-      await postLogin({ action: "phone", phone });
-      setSmsSent(true);
+      const res = await fetch("/api/kids/max-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "link", password }),
+      });
+      if (!res.body) throw new Error("Нет ответа от сервера");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+        for (const chunk of chunks) {
+          const line = chunk.split("\n").find((row) => row.startsWith("data: "));
+          if (!line) continue;
+          const event = JSON.parse(line.slice(6)) as {
+            type?: string;
+            link?: string;
+            error?: string;
+            chats?: MaxChatOption[];
+          };
+          if (event.type === "link" && event.link) {
+            setMaxLink(event.link);
+            openMax(event.link);
+          }
+          if (event.type === "ok") setChats(event.chats ?? []);
+          if (event.type === "error") throw new Error(event.error ?? "Не удалось привязать Max");
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "SMS не отправилась");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function verifySms() {
-    setBusy("verify");
-    setError(null);
-    try {
-      await postLogin({ action: "verify", code, password });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Код не подошёл");
+      setError(err instanceof Error ? err.message : "Не удалось привязать Max");
     } finally {
       setBusy(null);
     }
@@ -170,62 +185,39 @@ export function KidsMaxConnect({ status, onReady }: Props) {
     <section className="space-y-3 rounded-2xl bg-white p-3 shadow-sm">
       <h2 className="text-base font-semibold">Подключить Max</h2>
       <p className="text-sm text-stone-500">
-        Введите номер, на который зарегистрирован Max. Код придёт в SMS — после входа выберите два классных чата.
+        Привязка к уже открытому Max на этом телефоне. Нажмите кнопку, подтвердите вход в Max и вернитесь сюда. На это есть около минуты.
       </p>
 
       <label className="block text-sm">
-        <span className="mb-1 block text-stone-500">Телефон</span>
+        <span className="mb-1 block text-stone-500">Облачный пароль, если Max его спросит</span>
         <input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          inputMode="tel"
-          autoComplete="tel"
-          placeholder="+7…"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          type="password"
           className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2"
         />
       </label>
-      {smsSent ? (
-        <>
-          <label className="block text-sm">
-            <span className="mb-1 block text-stone-500">Код из SMS</span>
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-stone-500">Облачный пароль, если Max его спросит</span>
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2"
-            />
-          </label>
-        </>
-      ) : null}
 
       <button
         type="button"
-        onClick={() => void (smsSent ? verifySms() : sendSms())}
-        disabled={busy !== null || (!smsSent && phone.trim().length < 10) || (smsSent && code.trim().length < 4)}
+        onClick={() => void bindViaPhoneSession()}
+        disabled={busy !== null}
         className="w-full rounded-2xl bg-stone-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-60"
       >
-        {busy === "sms" || busy === "verify" ? "Жду Max…" : smsSent ? "Войти" : "Выслать SMS"}
+        {busy === "link" ? "Жду подтверждение в Max…" : "Подтвердить в открытом Max"}
       </button>
 
-      {smsSent ? (
-        <button
-          type="button"
-          onClick={() => void sendSms()}
-          disabled={busy !== null}
-          className="w-full text-sm text-stone-500 underline disabled:opacity-60"
+      {maxLink ? (
+        <a
+          href={maxLink}
+          onClick={(event) => {
+            event.preventDefault();
+            openMax(maxLink);
+          }}
+          className="block text-center text-sm font-medium text-sky-800 underline"
         >
-          Отправить код ещё раз
-        </button>
+          Если Max не открылся — нажмите здесь
+        </a>
       ) : null}
 
       {error ? <p className="text-sm text-red-700">{error}</p> : null}

@@ -7,6 +7,7 @@ import {
   sendPhoneAuthCode,
   verifyPhoneAuthCode,
 } from "max-account-api";
+import type { MaxChatOption } from "./types";
 import {
   loadPendingSms,
   normalizeMaxPhone,
@@ -128,5 +129,39 @@ export async function verifyMaxSms(codeRaw: string, password?: string) {
     }
   } finally {
     raw.close();
+  }
+}
+
+/** Привязка к уже открытому Max на телефоне: пользователь открывает ссылку в приложении. */
+export async function loginMaxByLink(
+  onLink: (link: string) => void,
+  password?: string,
+): Promise<{ ok: true; ownerName: string | null; chats: MaxChatOption[] }> {
+  const store = new MemorySessionStore();
+  const client = new MaxClient({
+    session: store,
+    printQr: false,
+    printCredentialsAfterLogin: false,
+    autoRead: false,
+    chatsCount: 80,
+    resolvePassword: password
+      ? async () => password
+      : async () => {
+          throw new Error("Нужен облачный пароль Max. Введите его и нажмите ещё раз.");
+        },
+  });
+
+  client.on("qr", (info) => {
+    onLink(info.link);
+  });
+
+  await client.start();
+  try {
+    const sess = await store.load();
+    const ownerName = client.getMe()?.names?.[0]?.name ?? null;
+    await saveMaxSession(sess, ownerName);
+    return { ok: true, ownerName, chats: summarizeChats(client.getChats()) };
+  } finally {
+    await client.stop();
   }
 }
