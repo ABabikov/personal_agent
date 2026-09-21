@@ -786,6 +786,8 @@ export interface Database {
           mobile_login_token: string | null;
           sms_token: string | null;
           owner_name: string | null;
+          telegram_chat_id: string | null;
+          last_notified_at: string | null;
           updated_at: string;
         };
         Insert: {
@@ -797,6 +799,8 @@ export interface Database {
           mobile_login_token?: string | null;
           sms_token?: string | null;
           owner_name?: string | null;
+          telegram_chat_id?: string | null;
+          last_notified_at?: string | null;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["kid_max_session"]["Insert"]>;

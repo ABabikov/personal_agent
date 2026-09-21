@@ -13,6 +13,8 @@ type SessionRow = {
   mobile_login_token: string | null;
   sms_token: string | null;
   owner_name: string | null;
+  telegram_chat_id: string | null;
+  last_notified_at: string | null;
 };
 
 function isMissingTable(message: string) {
@@ -191,4 +193,30 @@ export function childChatPairs(boy: string, girl: string): Array<[string, KidId]
     [boy, "boy"],
     [girl, "girl"],
   ];
+}
+
+export async function saveTelegramChatId(chatId: number) {
+  try {
+    await writeRow({ telegram_chat_id: String(chatId) });
+  } catch {
+    // таблица/колонка ещё не созданы — уведомления заработают после 019
+  }
+}
+
+export async function loadNotifyState() {
+  const envChat = process.env.TELEGRAM_KIDS_NOTIFY_CHAT_ID?.trim();
+  const row = await readRow().catch(() => null);
+  const chatId = envChat || row?.telegram_chat_id || "";
+  return {
+    chatId,
+    lastNotifiedAt: row?.last_notified_at ?? null,
+  };
+}
+
+export async function markNotified(at: string) {
+  try {
+    await writeRow({ last_notified_at: at });
+  } catch {
+    // без колонки просто не запомним курсор
+  }
 }

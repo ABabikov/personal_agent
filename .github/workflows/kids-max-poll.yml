@@ -1,0 +1,21 @@
+# Опрос Max каждые 5 минут: Vercel Hobby умеет только суточный cron.
+# Новые сообщения из двух классных чатов уходят в @kidsaa_schedule_bot.
+
+name: Kids Max poll
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Pull Max chats
+        run: |
+          code=$(curl -sS -o /tmp/max-sync.json -w "%{http_code}" -X POST "https://personal-agent-zeta.vercel.app/api/kids/max-sync")
+          cat /tmp/max-sync.json
+          echo
+          if [ "$code" -ge 500 ]; then exit 1; fi

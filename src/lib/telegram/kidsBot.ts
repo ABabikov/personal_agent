@@ -32,9 +32,29 @@ export async function sendKidsStartMessage(chatId: number) {
   const url = kidsWebAppUrl();
   await kidsBotCall("sendMessage", {
     chat_id: chatId,
-    text: "Расписание мальчика и девочки: уроки, кружки, ДЗ и два чата.",
+    text: "Расписание мальчика и девочки: уроки, кружки, ДЗ и два чата. Новые сообщения из классных чатов придут сюда.",
     reply_markup: url
       ? { inline_keyboard: [[{ text: "Открыть расписание", web_app: { url } }]] }
       : undefined,
   });
+}
+
+export async function sendKidsChatNotifications(
+  chatId: string,
+  items: Array<{ title: string; fromName: string; body: string; attachLabel?: string }>,
+) {
+  const url = kidsWebAppUrl();
+  const keyboard = url
+    ? { inline_keyboard: [[{ text: "Открыть чат", web_app: { url } }]] }
+    : undefined;
+
+  for (const item of items) {
+    const body = item.body.trim() || item.attachLabel || "сообщение без текста";
+    const text = [`${item.title} · ${item.fromName || "без имени"}`, body].join("\n");
+    await kidsBotCall("sendMessage", {
+      chat_id: chatId,
+      text: text.slice(0, 3500),
+      reply_markup: keyboard,
+    });
+  }
 }
