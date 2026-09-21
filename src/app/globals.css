@@ -166,3 +166,18 @@
     height: 1px;
   }
 }
+
+.kids-shell {
+  background: var(--tg-theme-bg-color, #f3efe6);
+  color: var(--tg-theme-text-color, #1c1917);
+}
+
+.kids-input {
+  width: 100%;
+  border-radius: 1rem;
+  background: #fff;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.95rem;
+  color: #1c1917;
+  outline: none;
+}

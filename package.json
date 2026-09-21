@@ -26,6 +26,7 @@
     "backup:all:dry": "tsx scripts/backup-supabase-all.ts --dry-run",
     "start": "next start",
     "lint": "eslint",
+    "setup:kids-bot": "node scripts/setup-kids-bot.mjs",
     "docker:up": "docker compose --env-file .env.docker up -d --build",
     "docker:down": "docker compose down",
     "mobile:sync": "npx cap sync",

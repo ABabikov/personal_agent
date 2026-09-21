@@ -622,6 +622,184 @@ export interface Database {
           },
         ];
       };
+      kids: {
+        Row: {
+          id: "boy" | "girl";
+          label: string;
+          max_chat_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id: "boy" | "girl";
+          label: string;
+          max_chat_id?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["kids"]["Insert"]>;
+        Relationships: [];
+      };
+      kid_lessons: {
+        Row: {
+          id: string;
+          child_id: "boy" | "girl";
+          weekday: number;
+          start_time: string;
+          end_time: string;
+          subject: string;
+          room: string | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["kid_lessons"]["Row"], "id" | "created_at"> & {
+          id?: string;
+          room?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_lessons"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "kid_lessons_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "kids";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      kid_activities: {
+        Row: {
+          id: string;
+          child_id: "boy" | "girl";
+          weekday: number | null;
+          on_date: string | null;
+          start_time: string;
+          end_time: string;
+          title: string;
+          place: string | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["kid_activities"]["Row"], "id" | "created_at"> & {
+          id?: string;
+          weekday?: number | null;
+          on_date?: string | null;
+          place?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_activities"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "kid_activities_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "kids";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      kid_homework: {
+        Row: {
+          id: string;
+          child_id: "boy" | "girl";
+          subject: string;
+          title: string;
+          due_date: string;
+          done: boolean;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["kid_homework"]["Row"], "id" | "created_at" | "done"> & {
+          id?: string;
+          done?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_homework"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "kid_homework_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "kids";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      kid_grades: {
+        Row: {
+          id: string;
+          child_id: "boy" | "girl";
+          subject: string;
+          value: string;
+          graded_on: string;
+          comment: string | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["kid_grades"]["Row"], "id" | "created_at"> & {
+          id?: string;
+          comment?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_grades"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "kid_grades_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "kids";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      kid_chat_messages: {
+        Row: {
+          id: string;
+          child_id: "boy" | "girl";
+          max_chat_id: string;
+          message_id: string;
+          from_id: string | null;
+          from_name: string;
+          body: string;
+          sent_at: string;
+          status: "edited" | "removed" | null;
+          raw: Record<string, unknown> | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["kid_chat_messages"]["Row"], "id" | "created_at"> & {
+          id?: string;
+          from_id?: string | null;
+          from_name?: string;
+          body?: string;
+          status?: "edited" | "removed" | null;
+          raw?: Record<string, unknown> | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_chat_messages"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "kid_chat_messages_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "kids";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      kid_chat_attachments: {
+        Row: {
+          id: string;
+          message_id: string;
+          kind: "photo" | "file" | "other";
+          name: string;
+          storage_path: string | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["kid_chat_attachments"]["Row"], "id" | "created_at"> & {
+          id?: string;
+          storage_path?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["kid_chat_attachments"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "kid_chat_attachments_message_id_fkey";
+            columns: ["message_id"];
+            isOneToOne: false;
+            referencedRelation: "kid_chat_messages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

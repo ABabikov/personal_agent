@@ -13,7 +13,11 @@ function isPublicPath(pathname: string): boolean {
     pathname === "/terms" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/logout" ||
-    pathname === "/api/integrations/huawei/callback"
+    pathname === "/api/integrations/huawei/callback" ||
+    pathname === "/kids" ||
+    pathname.startsWith("/kids/") ||
+    pathname.startsWith("/api/kids") ||
+    pathname.startsWith("/api/telegram/kids")
   );
 }
 

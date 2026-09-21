@@ -45,3 +45,5 @@ next-env.d.ts
 
 # локальные бэкапы (npm run backup:excel / backup:all)
 /backups/
+
+.max-session.json
