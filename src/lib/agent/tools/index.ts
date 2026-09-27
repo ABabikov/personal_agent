@@ -54,6 +54,7 @@ import { getMealPlanStateTool, setMealPlanStateTool, generateMealWeekPlanTool } 
 import {
   deleteFoodLogTool,
   getNutritionDayTool,
+  getNutritionWeekTool,
   logFoodTool,
   logWeightTool,
   saveDishTool,
@@ -107,6 +108,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   setMealPlanStateTool,
   // дневник питания
   getNutritionDayTool,
+  getNutritionWeekTool,
   searchFoodProductsTool,
   suggestRemainingMealsTool,
   logFoodTool,

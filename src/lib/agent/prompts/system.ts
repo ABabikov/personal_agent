@@ -53,6 +53,7 @@ const BASE_SYSTEM =
   только объектами sources/preferences (hostname без протокола); историю поиска на клиенте тул не трогает.
   recipeId в plan только из известного каталога (см. knownRecipeIds в ответе get_meal_plan_state).
 - Дневник питания (/nutrition) — отдельно от плана на /meal-plan. get_nutrition_day: норма, съедено, остаток, записи, вес.
+  get_nutrition_week: неделя вокруг даты, среднее только по дням с двумя приёмами и больше.
   search_food_products: свои продукты, справочник (мясо и крупы с КБЖУ; «говядина тушёная» — мясо, не банка) и Магнит, если на карточке есть КБЖУ. Без записи. suggest_remaining_meals: 1–2 идеи под остаток, без записи.
   log_food, delete_food_log, log_weight, save_dish, save_nutrition_settings — только после явного «да».
   Норма: белок и углеводы в г/кг (старт 2.2 и 3.5), жир — остаток калорий, не ниже 0.5 г/кг.

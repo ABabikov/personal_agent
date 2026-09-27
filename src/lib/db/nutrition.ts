@@ -1,6 +1,7 @@
 import { loadUserProfile } from "@/lib/db/profile";
 import { supabase } from "@/lib/db/supabase";
 import { dishPer100, macrosForGrams } from "@/lib/features/nutrition/dishMacros";
+import { summarizeWeek, weekDates, type WeekSummary } from "@/lib/features/nutrition/week";
 import type { MealSlotId } from "@/lib/features/nutrition/slots";
 import {
   computeDayTarget,
@@ -662,4 +663,57 @@ export async function loadNutritionDay(
       profileWeightKg: profile?.weight ?? null,
     },
   };
+}
+
+export async function loadNutritionWeek(
+  userId: string,
+  anchorIso: string
+): Promise<{ week: WeekSummary; targetKcal: number | null } | { error: string }> {
+  const dates = weekDates(anchorIso);
+  const from = dates[0];
+  const to = dates[6];
+  const [settingsR, profileR, entriesRes, weightsRes] = await Promise.all([
+    loadNutritionSettings(userId),
+    loadUserProfile(userId),
+    supabase
+      .from("food_log_entries")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("eaten_on", from)
+      .lte("eaten_on", to)
+      .is("deleted_at", null),
+    supabase
+      .from("weight_logs")
+      .select("weighed_on, kg")
+      .eq("user_id", userId)
+      .gte("weighed_on", from)
+      .lte("weighed_on", to),
+  ]);
+  if ("error" in settingsR) return settingsR;
+  if ("error" in profileR) return profileR;
+  if (entriesRes.error) return { error: entriesRes.error.message };
+  if (weightsRes.error) return { error: weightsRes.error.message };
+
+  const profile = profileR.data;
+  const tdee = profile
+    ? tdeeFromProfile({
+        weight: profile.weight,
+        height: profile.height,
+        age: profile.age,
+        gender: profile.gender,
+        activityLevel: profile.activity_level,
+        bodyFatPct: profile.body_fat_pct,
+      })
+    : null;
+  const computed = computeDayTarget({
+    weightKg: profile?.weight ?? null,
+    tdee,
+    settings: settingsR.settings,
+  });
+  const week = summarizeWeek({
+    anchorIso,
+    entries: (entriesRes.data ?? []).map(mapEntry),
+    weights: (weightsRes.data ?? []).map((row) => ({ date: row.weighed_on, kg: num(row.kg) })),
+  });
+  return { week, targetKcal: computed.ok ? computed.target.kcal : null };
 }

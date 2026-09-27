@@ -7,12 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DishBuilder } from "@/components/nutrition/dish-builder";
+import { NutritionWeekCard } from "@/components/nutrition/week-card";
 import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 import {
   listDishes,
   listFoodProducts,
   listRecentFoodLog,
   loadNutritionDay,
+  loadNutritionWeek,
   logProductPortion,
   logQuickMeal,
   saveFoodProduct,
@@ -29,6 +31,7 @@ import type { MagnitHit } from "@/lib/features/nutrition/magnitCatalog";
 import type { ReferenceFood } from "@/lib/features/nutrition/referenceCatalog";
 import { MEAL_SLOTS, slotFromHour, slotLabel, type MealSlotId } from "@/lib/features/nutrition/slots";
 import { suggestRemainingMeals, type MealSuggestion } from "@/lib/features/nutrition/suggest";
+import type { WeekSummary } from "@/lib/features/nutrition/week";
 import type { NutritionSettings } from "@/lib/features/nutrition/targets";
 import { isoLocalDate } from "@/lib/features/workouts/analytics";
 
@@ -48,12 +51,14 @@ type MagnitSearchHit = MagnitHit;
 export function NutritionPage() {
   useRegisterPageChatContext(
     "Дневник питания",
-    "Норма КБЖУ, остаток на день, поиск продуктов Магнита, свои блюда, утренний вес. Запись из чата — через log_food после подтверждения."
+    "Норма КБЖУ, остаток на день, сводка текущей недели, поиск продуктов, свои блюда, утренний вес. Запись из чата — через log_food после подтверждения."
   );
 
   const [userId, setUserId] = useState<string | null>(null);
   const [date, setDate] = useState(() => isoLocalDate(new Date()));
   const [day, setDay] = useState<NutritionDay | null>(null);
+  const [week, setWeek] = useState<WeekSummary | null>(null);
+  const [weekTargetKcal, setWeekTargetKcal] = useState<number | null>(null);
   const [products, setProducts] = useState<FoodProduct[]>([]);
   const [dishes, setDishes] = useState<DishView[]>([]);
   const [recent, setRecent] = useState<FoodLogEntry[]>([]);
@@ -97,11 +102,12 @@ export function NutritionPage() {
   const reload = useCallback(async (uid: string, dayIso: string) => {
     setLoading(true);
     setError(null);
-    const [dayR, prodR, dishR, recentR] = await Promise.all([
+    const [dayR, prodR, dishR, recentR, weekR] = await Promise.all([
       loadNutritionDay(uid, dayIso),
       listFoodProducts(uid),
       listDishes(uid),
       listRecentFoodLog(uid, 30),
+      loadNutritionWeek(uid, dayIso),
     ]);
     if ("error" in dayR) setError(dayR.error);
     else {
@@ -115,6 +121,12 @@ export function NutritionPage() {
     if ("products" in prodR) setProducts(prodR.products);
     if ("dishes" in dishR) setDishes(dishR.dishes);
     if ("entries" in recentR) setRecent(recentR.entries);
+    if ("error" in weekR) {
+      if (!("error" in dayR)) setError(weekR.error);
+    } else {
+      setWeek(weekR.week);
+      setWeekTargetKcal(weekR.targetKcal);
+    }
     setLoading(false);
   }, []);
 
@@ -308,6 +320,16 @@ export function NutritionPage() {
           </p>
         </div>
       </div>
+
+      {week ? (
+        <NutritionWeekCard
+          week={week}
+          targetKcal={weekTargetKcal}
+          selectedDate={date}
+          today={isoLocalDate(new Date())}
+          onSelect={setDate}
+        />
+      ) : null}
 
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => setDate((d) => shiftIso(d, -1))}>

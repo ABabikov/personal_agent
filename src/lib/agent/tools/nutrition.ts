@@ -3,6 +3,7 @@ import {
   listDishes,
   listFoodProducts,
   loadNutritionDay,
+  loadNutritionWeek,
   logDishPortion,
   logProductPortion,
   logQuickMeal,
@@ -44,6 +45,24 @@ export const getNutritionDayTool: AgentTool = {
     const day = await loadNutritionDay(ctx.userId, dateOrToday(args.date));
     if ("error" in day) return { ok: false, error: day.error };
     return { ok: true, data: day.day };
+  },
+};
+
+export const getNutritionWeekTool: AgentTool = {
+  name: "get_nutrition_week",
+  description:
+    "Сводка дневника за календарную неделю даты (пн–вс): ккал по дням, среднее КБЖУ только по полным дням (два приёма и больше), вес если записан. date — любой день этой недели, по умолчанию сегодня. Ничего не записывает.",
+  parameters: {
+    type: "object",
+    properties: {
+      date: { type: "string", description: "YYYY-MM-DD" },
+    },
+    additionalProperties: false,
+  },
+  execute: async (args, ctx) => {
+    const week = await loadNutritionWeek(ctx.userId, dateOrToday(args.date));
+    if ("error" in week) return { ok: false, error: week.error };
+    return { ok: true, data: week };
   },
 };
 
