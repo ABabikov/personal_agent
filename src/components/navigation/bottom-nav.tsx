@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Wallet,
   UtensilsCrossed,
+  Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,11 @@ const NAV_ITEMS = [
     href: "/expenses",
     label: "Финансы",
     icon: Wallet,
+  },
+  {
+    href: "/nutrition",
+    label: "Ккал",
+    icon: Flame,
   },
   {
     href: "/meal-plan",

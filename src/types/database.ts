@@ -830,6 +830,160 @@ export interface Database {
           },
         ];
       };
+      nutrition_settings: {
+        Row: {
+          user_id: string;
+          protein_g_per_kg: number;
+          carbs_g_per_kg: number;
+          fat_floor_g_per_kg: number;
+          deficit_kcal_min: number;
+          deficit_kcal_max: number;
+          kcal_override: number | null;
+          protein_g_override: number | null;
+          carbs_g_override: number | null;
+          fat_g_override: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          protein_g_per_kg?: number;
+          carbs_g_per_kg?: number;
+          fat_floor_g_per_kg?: number;
+          deficit_kcal_min?: number;
+          deficit_kcal_max?: number;
+          kcal_override?: number | null;
+          protein_g_override?: number | null;
+          carbs_g_override?: number | null;
+          fat_g_override?: number | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["nutrition_settings"]["Insert"]>;
+        Relationships: [];
+      };
+      food_products: {
+        Row: {
+          id: string;
+          user_id: string;
+          source: "manual" | "magnit" | "yarche";
+          external_id: string | null;
+          name: string;
+          kcal_per_100: number;
+          protein_per_100: number;
+          fat_per_100: number;
+          carbs_per_100: number;
+          package_grams: number | null;
+          url: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          source: "manual" | "magnit" | "yarche";
+          external_id?: string | null;
+          name: string;
+          kcal_per_100: number;
+          protein_per_100: number;
+          fat_per_100: number;
+          carbs_per_100: number;
+          package_grams?: number | null;
+          url?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["food_products"]["Insert"]>;
+        Relationships: [];
+      };
+      dishes: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          cooked_weight_g: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          cooked_weight_g: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["dishes"]["Insert"]>;
+        Relationships: [];
+      };
+      dish_ingredients: {
+        Row: {
+          id: string;
+          dish_id: string;
+          food_product_id: string;
+          grams: number;
+          sort_order: number;
+        };
+        Insert: {
+          id?: string;
+          dish_id: string;
+          food_product_id: string;
+          grams: number;
+          sort_order?: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["dish_ingredients"]["Insert"]>;
+        Relationships: [];
+      };
+      food_log_entries: {
+        Row: {
+          id: string;
+          user_id: string;
+          eaten_on: string;
+          slot: "breakfast" | "lunch" | "dinner" | "snack";
+          food_product_id: string | null;
+          dish_id: string | null;
+          label: string;
+          grams: number | null;
+          kcal: number;
+          protein_g: number;
+          fat_g: number;
+          carbs_g: number;
+          created_at: string;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          eaten_on: string;
+          slot: "breakfast" | "lunch" | "dinner" | "snack";
+          food_product_id?: string | null;
+          dish_id?: string | null;
+          label: string;
+          grams?: number | null;
+          kcal: number;
+          protein_g?: number;
+          fat_g?: number;
+          carbs_g?: number;
+          created_at?: string;
+          deleted_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["food_log_entries"]["Insert"]>;
+        Relationships: [];
+      };
+      weight_logs: {
+        Row: {
+          id: string;
+          user_id: string;
+          weighed_on: string;
+          kg: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          weighed_on: string;
+          kg: number;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["weight_logs"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

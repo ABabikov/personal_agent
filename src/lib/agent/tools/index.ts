@@ -51,6 +51,16 @@ import {
   listExpenseCategoriesTool,
 } from "@/lib/agent/tools/expenses_read";
 import { getMealPlanStateTool, setMealPlanStateTool, generateMealWeekPlanTool } from "@/lib/agent/tools/meal_plan";
+import {
+  deleteFoodLogTool,
+  getNutritionDayTool,
+  logFoodTool,
+  logWeightTool,
+  saveDishTool,
+  saveNutritionSettingsTool,
+  searchFoodProductsTool,
+  suggestRemainingMealsTool,
+} from "@/lib/agent/tools/nutrition";
 
 export const AGENT_TOOLS: AgentTool[] = [
   // профиль
@@ -95,6 +105,15 @@ export const AGENT_TOOLS: AgentTool[] = [
   getMealPlanStateTool,
   generateMealWeekPlanTool,
   setMealPlanStateTool,
+  // дневник питания
+  getNutritionDayTool,
+  searchFoodProductsTool,
+  suggestRemainingMealsTool,
+  logFoodTool,
+  deleteFoodLogTool,
+  logWeightTool,
+  saveDishTool,
+  saveNutritionSettingsTool,
   // внешний контекст
   webSearchTool,
 ];
