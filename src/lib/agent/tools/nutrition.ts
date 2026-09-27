@@ -14,6 +14,7 @@ import {
   softDeleteFoodLog,
 } from "@/lib/db/nutrition";
 import { searchMagnit } from "@/lib/features/nutrition/magnitCatalog";
+import { REFERENCE_FOODS, searchReferenceFoods } from "@/lib/features/nutrition/referenceCatalog";
 import { isMealSlot, todayIso, type MealSlotId } from "@/lib/features/nutrition/slots";
 import { suggestRemainingMeals, type MealSuggestion } from "@/lib/features/nutrition/suggest";
 import type { NutritionSettings } from "@/lib/features/nutrition/targets";
@@ -49,7 +50,7 @@ export const getNutritionDayTool: AgentTool = {
 export const searchFoodProductsTool: AgentTool = {
   name: "search_food_products",
   description:
-    "Ищет продукт: сначала в своих сохранённых, затем в каталоге Магнита (КБЖУ на 100 г с карточки). Ярче с сервера недоступен — такие продукты вносят с упаковки. Ничего не записывает.",
+    "Ищет продукт: свои сохранённые, затем справочник (мясо, крупы, молочка — с КБЖУ на 100 г), затем Магнит, если на карточке есть КБЖУ. «Говядина тушёная» в справочнике — мясо, не банка. Тушенка находится по слову «тушенка». Ничего не записывает.",
   parameters: {
     type: "object",
     properties: {
@@ -61,7 +62,7 @@ export const searchFoodProductsTool: AgentTool = {
   execute: async (args, ctx) => {
     const query = typeof args.query === "string" ? args.query.trim() : "";
     if (query.length < 2) return { ok: false, error: "Запрос короче 2 символов." };
-    const [local, magnit] = await Promise.all([
+    const [local, magnitAll] = await Promise.all([
       searchLocalProducts(ctx.userId, query, 8),
       searchMagnit(query, 4),
     ]);
@@ -70,7 +71,8 @@ export const searchFoodProductsTool: AgentTool = {
       data: {
         local: "error" in local ? [] : local.products,
         localError: "error" in local ? local.error : null,
-        magnit,
+        reference: searchReferenceFoods(query, 8),
+        magnit: magnitAll.filter((hit) => hit.kcalPer100 != null),
         yarcheNote: "Каталог Ярче с сервера не открывается. Внеси КБЖУ с упаковки.",
       },
     };
@@ -92,6 +94,7 @@ export const logFoodTool: AgentTool = {
       date: { type: "string" },
       slot: { type: "string", enum: ["breakfast", "lunch", "dinner", "snack"] },
       productId: { type: "string" },
+      referenceId: { type: "string", description: "id из search_food_products.reference, например beef-braised" },
       dishId: { type: "string" },
       grams: { type: "number" },
       product: {
@@ -129,6 +132,28 @@ export const logFoodTool: AgentTool = {
     const date = dateOrToday(args.date);
     const grams = typeof args.grams === "number" ? args.grams : null;
 
+    if (typeof args.referenceId === "string" && grams != null) {
+      const food = REFERENCE_FOODS.find((item) => item.id === args.referenceId);
+      if (!food) return { ok: false, error: "В справочнике нет такого id." };
+      const saved = await saveFoodProduct(ctx.userId, {
+        name: food.name,
+        source: "manual",
+        externalId: `ref:${food.id}`,
+        kcalPer100: food.kcalPer100,
+        proteinPer100: food.proteinPer100,
+        fatPer100: food.fatPer100,
+        carbsPer100: food.carbsPer100,
+      });
+      if ("error" in saved) return { ok: false, error: saved.error };
+      const logged = await logProductPortion(ctx.userId, {
+        eatenOn: date,
+        slot,
+        productId: saved.product.id,
+        grams,
+      });
+      if ("error" in logged) return { ok: false, error: logged.error };
+      return { ok: true, data: { product: saved.product, entry: logged.entry } };
+    }
     if (typeof args.productId === "string" && grams != null) {
       const logged = await logProductPortion(ctx.userId, {
         eatenOn: date,
@@ -188,7 +213,7 @@ export const logFoodTool: AgentTool = {
       if ("error" in logged) return { ok: false, error: logged.error };
       return { ok: true, data: logged.entry };
     }
-    return { ok: false, error: "Укажи productId, dishId, product или quick, и граммы где нужно." };
+    return { ok: false, error: "Укажи productId, referenceId, dishId, product или quick, и граммы где нужно." };
   },
 };
 

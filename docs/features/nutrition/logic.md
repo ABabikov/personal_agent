@@ -2,4 +2,4 @@
 
 Экран `/nutrition` и тулы агента вызывают `src/lib/db/nutrition.ts`. Формула нормы — `computeDayTarget` в `src/lib/features/nutrition/targets.ts`. КБЖУ блюда — `dishPer100`.
 
-Поиск: `POST /api/nutrition/search` читает свои продукты и карточки magnit.ru. Запись в чате (`log_food`, `log_weight`, `save_dish`, `save_nutrition_settings`, `delete_food_log`) только после явного подтверждения — это правило системного промпта, не отдельный флаг в коде.
+Поиск: `POST /api/nutrition/search` сначала отдаёт справочник `referenceCatalog.ts` (мясо, рыба, крупы, овощи и фрукты с КБЖУ на 100 г). «Говядина тушёная» — мясо, «тушенка» — банка. Запрос «фрукты» или «овощи» открывает группу. Карточки Магнита показываются только если на странице нашлись КБЖУ. Ярче остаётся ручным вводом с упаковки. Запись в чате (`log_food`, в том числе по `referenceId`, `log_weight`, `save_dish`, `save_nutrition_settings`, `delete_food_log`) только после явного подтверждения — это правило системного промпта, не отдельный флаг в коде.

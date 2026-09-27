@@ -27,6 +27,7 @@ import {
 } from "@/lib/db/nutrition";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import type { MagnitHit } from "@/lib/features/nutrition/magnitCatalog";
+import type { ReferenceFood } from "@/lib/features/nutrition/referenceCatalog";
 import { MEAL_SLOTS, slotFromHour, slotLabel, type MealSlotId } from "@/lib/features/nutrition/slots";
 import { suggestRemainingMeals, type MealSuggestion } from "@/lib/features/nutrition/suggest";
 import type { NutritionSettings } from "@/lib/features/nutrition/targets";
@@ -65,10 +66,13 @@ export function NutritionPage() {
   const [grams, setGrams] = useState("100");
   const [query, setQuery] = useState("");
   const [localHits, setLocalHits] = useState<FoodProduct[]>([]);
+  const [referenceHits, setReferenceHits] = useState<ReferenceFood[]>([]);
   const [magnitHits, setMagnitHits] = useState<MagnitSearchHit[]>([]);
+  const [magnitNote, setMagnitNote] = useState<string | null>(null);
   const [yarcheNote, setYarcheNote] = useState<string | null>(null);
   const [picked, setPicked] = useState<
     | { kind: "product"; product: FoodProduct }
+    | { kind: "reference"; item: ReferenceFood }
     | { kind: "magnit"; hit: MagnitSearchHit }
     | null
   >(null);
@@ -177,7 +181,9 @@ export function NutritionPage() {
       });
       const json = (await res.json()) as {
         local?: FoodProduct[];
+        reference?: ReferenceFood[];
         magnit?: MagnitSearchHit[];
+        magnitNote?: string | null;
         yarcheNote?: string;
         error?: string;
       };
@@ -185,7 +191,9 @@ export function NutritionPage() {
         setError(json.error ?? "Поиск не удался.");
       } else {
         setLocalHits(json.local ?? []);
+        setReferenceHits(json.reference ?? []);
         setMagnitHits(json.magnit ?? []);
+        setMagnitNote(json.magnitNote ?? null);
         setYarcheNote(json.yarcheNote ?? null);
       }
     } catch {
@@ -200,6 +208,20 @@ export function NutritionPage() {
     await run(async () => {
       if (picked.kind === "product") {
         return logProductPortion(userId, { eatenOn: date, slot, productId: picked.product.id, grams: g });
+      }
+      if (picked.kind === "reference") {
+        const item = picked.item;
+        const saved = await saveFoodProduct(userId, {
+          name: item.name,
+          source: "manual",
+          externalId: `ref:${item.id}`,
+          kcalPer100: item.kcalPer100,
+          proteinPer100: item.proteinPer100,
+          fatPer100: item.fatPer100,
+          carbsPer100: item.carbsPer100,
+        });
+        if ("error" in saved) return saved;
+        return logProductPortion(userId, { eatenOn: date, slot, productId: saved.product.id, grams: g });
       }
       const hit = picked.hit;
       if (hit.kcalPer100 == null || hit.proteinPer100 == null || hit.fatPer100 == null || hit.carbsPer100 == null) {
@@ -437,6 +459,16 @@ export function NutritionPage() {
               }))}
             />
           ) : null}
+          {referenceHits.length > 0 ? (
+            <HitList
+              title="Справочник"
+              items={referenceHits.map((item) => ({
+                key: item.id,
+                label: `${item.name}${item.note ? ` · ${item.note}` : ""} · ${fmt(item.kcalPer100)} ккал/100`,
+                onPick: () => setPicked({ kind: "reference", item }),
+              }))}
+            />
+          ) : null}
           {magnitHits.length > 0 ? (
             <HitList
               title="Магнит"
@@ -450,11 +482,16 @@ export function NutritionPage() {
               }))}
             />
           ) : null}
+          {magnitNote ? <p className="text-[11px] text-muted-foreground">{magnitNote}</p> : null}
           {yarcheNote ? <p className="text-[11px] text-muted-foreground">{yarcheNote}</p> : null}
           {picked ? (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2 py-2">
               <span className="text-xs">
-                {picked.kind === "product" ? picked.product.name : picked.hit.name}
+                {picked.kind === "product"
+                  ? picked.product.name
+                  : picked.kind === "reference"
+                    ? picked.item.name
+                    : picked.hit.name}
               </span>
               <Button type="button" size="sm" disabled={busy} onClick={() => void logPicked()}>
                 В приём
