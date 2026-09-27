@@ -16,6 +16,10 @@ export type ReferenceFood = {
   note?: string;
   /** Группа для запросов «фрукты» и «овощи». */
   group?: "fruit" | "vegetable";
+  /** Вес одной штуки, г. Яйцо — без скорлупы. */
+  pieceGrams?: number;
+  /** Вес одной столовой ложки, г. */
+  tbspGrams?: number;
 };
 
 export const REFERENCE_FOODS: ReferenceFood[] = [
@@ -68,7 +72,7 @@ export const REFERENCE_FOODS: ReferenceFood[] = [
   { id: "chicken-liver-raw", name: "Печень куриная сырая", aliases: ["печень сырая куриная"], kcalPer100: 136, proteinPer100: 20.4, fatPer100: 5.9, carbsPer100: 0.7, note: "сырая" },
   { id: "ham-venezia", name: "Ветчина Венеция", aliases: ["ветчина венеция", "венеция ветчина"], kcalPer100: 120, proteinPer100: 17, fatPer100: 4.5, carbsPer100: 2.5, note: "с упаковки" },
   { id: "turkey-breast", name: "Индейка, грудка", aliases: ["филе индейки"], kcalPer100: 114, proteinPer100: 23.6, fatPer100: 1.5, carbsPer100: 0 },
-  { id: "egg", name: "Яйцо куриное", aliases: ["яйца"], kcalPer100: 157, proteinPer100: 12.7, fatPer100: 11.5, carbsPer100: 0.7 },
+  { id: "egg", name: "Яйцо куриное", aliases: ["яйца", "яйцо"], kcalPer100: 157, proteinPer100: 12.7, fatPer100: 11.5, carbsPer100: 0.7, pieceGrams: 55, note: "1 шт ≈ 55 г" },
   { id: "egg-white", name: "Яичный белок", aliases: ["белок яйца"], kcalPer100: 44, proteinPer100: 11.1, fatPer100: 0, carbsPer100: 0.7 },
   { id: "pollock-boiled", name: "Минтай", aliases: ["минтай отварной", "филе минтая"], kcalPer100: 79, proteinPer100: 17.6, fatPer100: 1, carbsPer100: 0, note: "отварной" },
   { id: "pollock", name: "Минтай сырой", aliases: [], kcalPer100: 72, proteinPer100: 15.9, fatPer100: 0.9, carbsPer100: 0, note: "сырой" },
@@ -100,6 +104,8 @@ export const REFERENCE_FOODS: ReferenceFood[] = [
   { id: "bread-white", name: "Хлеб пшеничный", aliases: ["хлеб белый", "батон"], kcalPer100: 242, proteinPer100: 8.1, fatPer100: 1, carbsPer100: 48.8 },
   { id: "bread-rye", name: "Хлеб ржаной", aliases: ["хлеб черный", "бородинский"], kcalPer100: 174, proteinPer100: 6.6, fatPer100: 1.2, carbsPer100: 33.4 },
   { id: "flour", name: "Мука пшеничная", aliases: ["мука"], kcalPer100: 334, proteinPer100: 10.3, fatPer100: 1.1, carbsPer100: 68.9 },
+  { id: "semolina", name: "Манка", aliases: ["манная крупа", "манка сухая"], kcalPer100: 333, proteinPer100: 10.3, fatPer100: 1, carbsPer100: 70.6, tbspGrams: 20, note: "1 ст. л. ≈ 20 г" },
+  { id: "raisins", name: "Изюм", aliases: ["изюм кишмиш"], kcalPer100: 279, proteinPer100: 2.3, fatPer100: 0.5, carbsPer100: 65.8 },
   { id: "sugar", name: "Сахар", aliases: [], kcalPer100: 399, proteinPer100: 0, fatPer100: 0, carbsPer100: 99.8 },
 
   { id: "butter", name: "Масло сливочное 82,5%", aliases: ["сливочное масло", "масло"], kcalPer100: 748, proteinPer100: 0.5, fatPer100: 82.5, carbsPer100: 0.8 },
@@ -107,9 +113,10 @@ export const REFERENCE_FOODS: ReferenceFood[] = [
   { id: "oil-olive", name: "Масло оливковое", aliases: ["оливковое масло"], kcalPer100: 898, proteinPer100: 0, fatPer100: 99.8, carbsPer100: 0 },
 
   { id: "onion", name: "Лук репчатый", aliases: ["лук", "овощи"], kcalPer100: 41, proteinPer100: 1.4, fatPer100: 0.2, carbsPer100: 8.2, group: "vegetable" },
+  { id: "onion-red", name: "Лук фиолетовый", aliases: ["лук красный", "красный лук", "овощи"], kcalPer100: 40, proteinPer100: 1.1, fatPer100: 0.1, carbsPer100: 9.3, group: "vegetable" },
   { id: "carrot", name: "Морковь", aliases: ["овощи"], kcalPer100: 35, proteinPer100: 1.3, fatPer100: 0.1, carbsPer100: 6.9, group: "vegetable" },
   { id: "tomato", name: "Помидор", aliases: ["томаты", "помидоры", "овощи"], kcalPer100: 20, proteinPer100: 0.6, fatPer100: 0.2, carbsPer100: 4.2, group: "vegetable" },
-  { id: "cucumber", name: "Огурец", aliases: ["огурцы", "овощи"], kcalPer100: 15, proteinPer100: 0.8, fatPer100: 0.1, carbsPer100: 2.8, group: "vegetable" },
+  { id: "cucumber", name: "Огурец", aliases: ["огурцы", "огурца", "огурец свежий", "овощи"], kcalPer100: 15, proteinPer100: 0.8, fatPer100: 0.1, carbsPer100: 2.8, group: "vegetable" },
   { id: "cabbage", name: "Капуста белокочанная", aliases: ["капуста", "овощи"], kcalPer100: 27, proteinPer100: 1.8, fatPer100: 0.1, carbsPer100: 4.7, group: "vegetable" },
   { id: "cabbage-napa", name: "Пекинская капуста", aliases: ["капуста пекинская", "китайская капуста", "овощи"], kcalPer100: 16, proteinPer100: 1.2, fatPer100: 0.2, carbsPer100: 2, group: "vegetable" },
   { id: "green-beans", name: "Фасоль стручковая", aliases: ["стручковая фасоль", "овощи"], kcalPer100: 31, proteinPer100: 1.8, fatPer100: 0.2, carbsPer100: 4.5, note: "отварная", group: "vegetable" },
@@ -144,12 +151,12 @@ export const REFERENCE_FOODS: ReferenceFood[] = [
   { id: "peas-dry", name: "Горох сухой", aliases: ["горох крупа"], kcalPer100: 298, proteinPer100: 20.5, fatPer100: 2, carbsPer100: 49.5, note: "сухой" },
   { id: "chickpea-boiled", name: "Нут", aliases: ["нут отварной"], kcalPer100: 164, proteinPer100: 8.9, fatPer100: 2.6, carbsPer100: 27, note: "отварной" },
   { id: "chickpea-dry", name: "Нут сухой", aliases: [], kcalPer100: 364, proteinPer100: 19, fatPer100: 6, carbsPer100: 61, note: "сухой" },
-  { id: "peas-canned", name: "Горошек консервированный", aliases: ["зеленый горошек", "горошек", "горошек зеленый"], kcalPer100: 40, proteinPer100: 3.1, fatPer100: 0.2, carbsPer100: 6.5, note: "слитый" },
+  { id: "peas-canned", name: "Горошек консервированный", aliases: ["зеленый горошек", "горошек", "горошек зеленый", "горошка"], kcalPer100: 40, proteinPer100: 3.1, fatPer100: 0.2, carbsPer100: 6.5, note: "слитый" },
   { id: "beans-boiled", name: "Фасоль белая отварная", aliases: ["фасоль бобовая", "фасоль красная"], kcalPer100: 123, proteinPer100: 7.8, fatPer100: 0.5, carbsPer100: 21.5 },
 ];
 
 function normalize(value: string): string {
-  return value.toLowerCase().replace(/ё/g, "е").replace(/й/g, "и");
+  return value.toLowerCase().replace(/ё/g, "е");
 }
 
 function tokens(value: string): string[] {
@@ -158,9 +165,13 @@ function tokens(value: string): string[] {
     .filter((token) => token.length > 1);
 }
 
-/** Срезает окончание прилагательного, чтобы «тушеная» совпала с «тушеное», но не с «тушенка». */
+/** Срезает окончание, чтобы «тушеная» совпала с «тушеное», а «творога» — с «творог». «Тушенка» остаётся другим словом. */
 function stem(token: string): string {
-  return token.replace(/(ая|яя|ый|ий|ое|ее|ые|ие|ую|юю|ой|ую)$/u, "");
+  const adj = token.replace(/(ого|его|ому|ему|ыми|ими|ая|яя|ый|ий|ое|ее|ые|ие|ую|юю|ой)$/u, "");
+  if (adj !== token && adj.length >= 3) return adj;
+  const noun = token.replace(/(ами|ями|ов|ев|ах|ях|ом|ем|ой|ей|ам|ям|а|я|ы|и|у|ю|о|е)$/u, "");
+  if (noun !== token && noun.length >= 3) return noun;
+  return token;
 }
 
 function wordsMatch(queryWord: string, nameWord: string): boolean {
@@ -168,6 +179,13 @@ function wordsMatch(queryWord: string, nameWord: string): boolean {
   if (queryWord.length < 4 || !nameWord.startsWith(queryWord)) return false;
   const tail = nameWord.slice(queryWord.length);
   return /^(а|я|ы|и|е|у|ой|ка|ки|ок)$/u.test(tail);
+}
+
+export function foodQueryMatches(query: string, text: string): boolean {
+  const queryTokens = tokens(query);
+  if (queryTokens.length === 0) return false;
+  const hay = tokens(text);
+  return queryTokens.every((word) => hay.some((nameWord) => wordsMatch(word, nameWord)));
 }
 
 function foodTokens(food: ReferenceFood): string[] {

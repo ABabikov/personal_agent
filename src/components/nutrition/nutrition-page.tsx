@@ -6,16 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
+import { DishBuilder } from "@/components/nutrition/dish-builder";
 import {
   listDishes,
   listFoodProducts,
   listRecentFoodLog,
   loadNutritionDay,
-  logDishPortion,
   logProductPortion,
   logQuickMeal,
-  saveDish,
   saveFoodProduct,
   saveNutritionSettings,
   saveWeight,
@@ -93,12 +91,6 @@ export function NutritionPage() {
   const [deficitMin, setDeficitMin] = useState("200");
   const [deficitMax, setDeficitMax] = useState("400");
 
-  const [dishName, setDishName] = useState("");
-  const [dishCooked, setDishCooked] = useState("");
-  const [dishLines, setDishLines] = useState<{ productId: string; grams: string }[]>([
-    { productId: "", grams: "" },
-  ]);
-  const [dishLogGrams, setDishLogGrams] = useState<Record<string, string>>({});
   const [suggestions, setSuggestions] = useState<MealSuggestion[]>([]);
 
   const reload = useCallback(async (uid: string, dayIso: string) => {
@@ -580,105 +572,16 @@ export function NutritionPage() {
         </CardContent>
       </Card>
 
-      <Card size="sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Своё блюдо</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {dishes.map((dish) => (
-            <div key={dish.id} className="rounded-lg border border-border/50 px-2 py-2 space-y-1">
-              <div className="text-xs font-medium">{dish.name}</div>
-              <div className="text-[11px] text-muted-foreground">
-                на 100 г: {fmt(dish.per100.kcal)} ккал · Б {fmt(dish.per100.proteinG)} · Ж {fmt(dish.per100.fatG)} · У{" "}
-                {fmt(dish.per100.carbsG)}. Готовое {fmt(dish.cookedWeightG)} г.
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  value={dishLogGrams[dish.id] ?? "200"}
-                  onChange={(e) => setDishLogGrams((m) => ({ ...m, [dish.id]: e.target.value }))}
-                  inputMode="decimal"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy || !userId}
-                  onClick={() =>
-                    userId &&
-                    void run(() =>
-                      logDishPortion(userId, {
-                        eatenOn: date,
-                        slot,
-                        dishId: dish.id,
-                        grams: Number((dishLogGrams[dish.id] ?? "200").replace(",", ".")),
-                      })
-                    )
-                  }
-                >
-                  Съел
-                </Button>
-              </div>
-            </div>
-          ))}
-          <Input value={dishName} onChange={(e) => setDishName(e.target.value)} placeholder="Лазанья" />
-          {dishLines.map((line, index) => (
-            <div key={index} className="flex gap-1">
-              <select
-                className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-transparent px-2 text-xs"
-                value={line.productId}
-                onChange={(e) =>
-                  setDishLines((rows) => rows.map((r, i) => (i === index ? { ...r, productId: e.target.value } : r)))
-                }
-              >
-                <option value="">Продукт</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <Input
-                className="w-20"
-                value={line.grams}
-                placeholder="г"
-                inputMode="decimal"
-                onChange={(e) =>
-                  setDishLines((rows) => rows.map((r, i) => (i === index ? { ...r, grams: e.target.value } : r)))
-                }
-              />
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setDishLines((rows) => [...rows, { productId: "", grams: "" }])}
-          >
-            Пункт
-          </Button>
-          <Input
-            value={dishCooked}
-            onChange={(e) => setDishCooked(e.target.value)}
-            placeholder="Вес готового, г (пусто = сумма ингредиентов)"
-          />
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || !userId}
-            onClick={() =>
-              userId &&
-              void run(async () => {
-                const ingredients = dishLines
-                  .filter((l) => l.productId && l.grams)
-                  .map((l) => ({ productId: l.productId, grams: Number(l.grams.replace(",", ".")) }));
-                const cooked = dishCooked.trim() ? Number(dishCooked.replace(",", ".")) : null;
-                return saveDish(userId, { name: dishName, cookedWeightG: cooked, ingredients });
-              })
-            }
-          >
-            Сохранить блюдо
-          </Button>
-        </CardContent>
-      </Card>
+      <DishBuilder
+        userId={userId}
+        products={products}
+        dishes={dishes}
+        slot={slot}
+        onSlot={setSlot}
+        busy={busy}
+        date={date}
+        run={run}
+      />
 
       <Card size="sm">
         <CardHeader className="pb-2">
