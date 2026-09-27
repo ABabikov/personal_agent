@@ -111,6 +111,7 @@ export const REFERENCE_FOODS: ReferenceFood[] = [
   { id: "tomato", name: "Помидор", aliases: ["томаты", "помидоры", "овощи"], kcalPer100: 20, proteinPer100: 0.6, fatPer100: 0.2, carbsPer100: 4.2, group: "vegetable" },
   { id: "cucumber", name: "Огурец", aliases: ["огурцы", "овощи"], kcalPer100: 15, proteinPer100: 0.8, fatPer100: 0.1, carbsPer100: 2.8, group: "vegetable" },
   { id: "cabbage", name: "Капуста белокочанная", aliases: ["капуста", "овощи"], kcalPer100: 27, proteinPer100: 1.8, fatPer100: 0.1, carbsPer100: 4.7, group: "vegetable" },
+  { id: "cabbage-napa", name: "Пекинская капуста", aliases: ["капуста пекинская", "китайская капуста", "овощи"], kcalPer100: 16, proteinPer100: 1.2, fatPer100: 0.2, carbsPer100: 2, group: "vegetable" },
   { id: "green-beans", name: "Фасоль стручковая", aliases: ["стручковая фасоль", "овощи"], kcalPer100: 31, proteinPer100: 1.8, fatPer100: 0.2, carbsPer100: 4.5, note: "отварная", group: "vegetable" },
   {
     id: "stewed-cabbage-beans",
