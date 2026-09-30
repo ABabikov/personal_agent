@@ -8,6 +8,14 @@ function fmt(n: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+function daysWord(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "дня";
+  return "дней";
+}
+
 function rangeLabel(from: string, to: string): string {
   const months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   const start = new Date(`${from}T12:00:00`);
@@ -95,6 +103,20 @@ export function NutritionWeekCard({
               : `${fmt(week.weightStartKg)} кг`}
           </p>
         ) : null}
+        {week.bmr != null && week.spentKcal != null ? (
+          <p className="text-xs">
+            Ориентир расхода за {week.countedDays} {daysWord(week.countedDays)}: {Math.round(week.spentKcal)} ккал.
+            Базовый обмен {week.bmr} × {week.countedDays}
+            {week.workoutKcal > 0 ? ` + тренировки ${week.workoutKcal}` : ", тренировок нет"}.
+          </p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Ориентир расхода не посчитать: в профиле нет данных для базового обмена.
+          </p>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Расход — обмен покоя плюс калории тренировок из журнала. В норму еды не входит.
+        </p>
       </CardContent>
     </Card>
   );

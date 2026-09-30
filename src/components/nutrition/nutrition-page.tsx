@@ -306,6 +306,7 @@ export function NutritionPage() {
   }
 
   const slotsWithFood = new Set(day?.entries.map((e) => e.slot) ?? []);
+  const selectedSpend = week?.days.find((item) => item.date === date) ?? null;
 
   return (
     <div className="space-y-4 pb-4">
@@ -370,6 +371,13 @@ export function NutritionPage() {
             ) : null}
             {slotsWithFood.size > 0 && slotsWithFood.size < 2 ? (
               <p className="text-[11px] text-muted-foreground">День пока неполный: меньше двух приёмов.</p>
+            ) : null}
+            {week?.bmr != null && selectedSpend?.spentKcal != null ? (
+              <p className="text-xs">
+                Ориентир расхода: {week.bmr} обмен
+                {selectedSpend.workoutKcal > 0 ? ` + ${selectedSpend.workoutKcal} тренировки` : ""} ={" "}
+                {selectedSpend.spentKcal} ккал
+              </p>
             ) : null}
             <Button type="button" variant="secondary" size="sm" disabled={busy || !day.remaining} onClick={buildSuggestions}>
               Что добрать

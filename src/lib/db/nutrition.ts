@@ -2,13 +2,14 @@ import { loadUserProfile } from "@/lib/db/profile";
 import { supabase } from "@/lib/db/supabase";
 import { dishPer100, macrosForGrams } from "@/lib/features/nutrition/dishMacros";
 import { summarizeWeek, weekDates, type WeekSummary } from "@/lib/features/nutrition/week";
-import type { MealSlotId } from "@/lib/features/nutrition/slots";
+import { todayIso, type MealSlotId } from "@/lib/features/nutrition/slots";
 import {
   computeDayTarget,
   DEFAULT_NUTRITION_SETTINGS,
   emptyMacros,
   subtractMacros,
   tdeeFromProfile,
+  bmrFromProfile,
   addMacros,
   type DayTarget,
   type MacroTotals,
@@ -672,7 +673,7 @@ export async function loadNutritionWeek(
   const dates = weekDates(anchorIso);
   const from = dates[0];
   const to = dates[6];
-  const [settingsR, profileR, entriesRes, weightsRes] = await Promise.all([
+  const [settingsR, profileR, entriesRes, weightsRes, workoutsRes] = await Promise.all([
     loadNutritionSettings(userId),
     loadUserProfile(userId),
     supabase
@@ -688,23 +689,33 @@ export async function loadNutritionWeek(
       .eq("user_id", userId)
       .gte("weighed_on", from)
       .lte("weighed_on", to),
+    supabase
+      .from("workouts")
+      .select("date, calories_estimated")
+      .eq("user_id", userId)
+      .gte("date", from)
+      .lte("date", to)
+      .is("deleted_at", null),
   ]);
   if ("error" in settingsR) return settingsR;
   if ("error" in profileR) return profileR;
   if (entriesRes.error) return { error: entriesRes.error.message };
   if (weightsRes.error) return { error: weightsRes.error.message };
+  if (workoutsRes.error) return { error: workoutsRes.error.message };
 
   const profile = profileR.data;
-  const tdee = profile
-    ? tdeeFromProfile({
+  const profileInput = profile
+    ? {
         weight: profile.weight,
         height: profile.height,
         age: profile.age,
         gender: profile.gender,
         activityLevel: profile.activity_level,
         bodyFatPct: profile.body_fat_pct,
-      })
+      }
     : null;
+  const bmr = profileInput ? bmrFromProfile(profileInput) : null;
+  const tdee = profileInput ? tdeeFromProfile(profileInput) : null;
   const computed = computeDayTarget({
     weightKg: profile?.weight ?? null,
     tdee,
@@ -712,8 +723,14 @@ export async function loadNutritionWeek(
   });
   const week = summarizeWeek({
     anchorIso,
+    today: todayIso(),
+    bmr,
     entries: (entriesRes.data ?? []).map(mapEntry),
     weights: (weightsRes.data ?? []).map((row) => ({ date: row.weighed_on, kg: num(row.kg) })),
+    workouts: (workoutsRes.data ?? []).map((row) => ({
+      date: row.date,
+      kcal: num(row.calories_estimated),
+    })),
   });
   return { week, targetKcal: computed.ok ? computed.target.kcal : null };
 }

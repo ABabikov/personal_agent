@@ -60,19 +60,24 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-export function tdeeFromProfile(profile: ProfileForTdee): number | null {
-  let bmr: number | null = null;
+export function bmrFromProfile(profile: ProfileForTdee): number | null {
   if (profile.bodyFatPct != null && profile.bodyFatPct > 0 && profile.weight != null && profile.weight > 0) {
-    bmr = calculateBMRKatchMcArdle(profile.weight, profile.bodyFatPct);
-  } else if (
+    return calculateBMRKatchMcArdle(profile.weight, profile.bodyFatPct);
+  }
+  if (
     profile.weight != null &&
     profile.weight > 0 &&
     profile.height != null &&
     profile.age != null &&
     profile.gender
   ) {
-    bmr = calculateBMR(profile.weight, profile.height, profile.age, profile.gender);
+    return calculateBMR(profile.weight, profile.height, profile.age, profile.gender);
   }
+  return null;
+}
+
+export function tdeeFromProfile(profile: ProfileForTdee): number | null {
+  const bmr = bmrFromProfile(profile);
   if (bmr == null) return null;
   return calculateTDEE(bmr, profile.activityLevel);
 }

@@ -25,6 +25,9 @@ export type WeekDayStat = {
   slots: number;
   complete: boolean;
   weightKg: number | null;
+  workoutKcal: number;
+  /** Базовый обмен + тренировки. Пусто для дней, которые ещё не наступили. */
+  spentKcal: number | null;
 };
 
 export type WeekSummary = {
@@ -37,6 +40,14 @@ export type WeekSummary = {
   average: MacroTotals | null;
   weightStartKg: number | null;
   weightEndKg: number | null;
+  /** Базовый обмен в день. Пусто, если в профиле не хватает данных. */
+  bmr: number | null;
+  /** Сколько дней недели уже наступило, включая сегодня. */
+  countedDays: number;
+  /** Сумма калорий тренировок за наступившие дни. */
+  workoutKcal: number;
+  /** BMR × наступившие дни + тренировки. */
+  spentKcal: number | null;
 };
 
 export function weekDates(anchorIso: string): string[] {
@@ -60,9 +71,18 @@ export function summarizeWeek(input: {
   anchorIso: string;
   entries: WeekEntry[];
   weights: { date: string; kg: number }[];
+  workouts?: { date: string; kcal: number }[];
+  bmr?: number | null;
+  today?: string;
 }): WeekSummary {
   const dates = weekDates(input.anchorIso);
+  const today = input.today ?? input.anchorIso;
+  const bmr = input.bmr != null && input.bmr > 0 ? Math.round(input.bmr) : null;
   const weightByDate = new Map(input.weights.map((row) => [row.date, row.kg]));
+  const workoutByDate = new Map<string, number>();
+  for (const row of input.workouts ?? []) {
+    workoutByDate.set(row.date, (workoutByDate.get(row.date) ?? 0) + row.kcal);
+  }
   const days: WeekDayStat[] = dates.map((date) => {
     const rows = input.entries.filter((entry) => entry.eatenOn === date);
     const slots = new Set(rows.map((entry) => entry.slot));
@@ -76,6 +96,8 @@ export function summarizeWeek(input: {
         }),
       emptyMacros()
     );
+    const workoutKcal = Math.round(workoutByDate.get(date) ?? 0);
+    const started = date <= today;
     return {
       date,
       label: WEEKDAY_SHORT[new Date(`${date}T12:00:00`).getDay()],
@@ -86,6 +108,8 @@ export function summarizeWeek(input: {
       slots: slots.size,
       complete: slots.size >= COMPLETE_DAY_MIN_SLOTS,
       weightKg: weightByDate.get(date) ?? null,
+      workoutKcal,
+      spentKcal: started && bmr != null ? bmr + workoutKcal : started ? workoutKcal : null,
     };
   });
   const complete = days.filter((day) => day.complete);
@@ -103,6 +127,9 @@ export function summarizeWeek(input: {
           carbsG: round1(complete.reduce((sum, day) => sum + day.carbsG, 0) / complete.length),
         };
   const weighed = days.filter((day) => day.weightKg != null);
+  const counted = days.filter((day) => day.date <= today);
+  const workoutKcal = counted.reduce((sum, day) => sum + day.workoutKcal, 0);
+  const spentKcal = bmr != null ? bmr * counted.length + workoutKcal : counted.length > 0 ? workoutKcal : null;
   return {
     from: dates[0],
     to: dates[6],
@@ -112,5 +139,9 @@ export function summarizeWeek(input: {
     average,
     weightStartKg: weighed[0]?.weightKg ?? null,
     weightEndKg: weighed.length > 1 ? (weighed[weighed.length - 1].weightKg ?? null) : null,
+    bmr,
+    countedDays: counted.length,
+    workoutKcal,
+    spentKcal,
   };
 }
