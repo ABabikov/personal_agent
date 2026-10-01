@@ -4,7 +4,7 @@ import { estimateGymCalories } from "@/lib/features/workouts/calories";
 import type { ParsedGymWorkout, ParsedSwimWorkout } from "@/lib/features/workouts/csvImport";
 import type { GymSet } from "@/types/database";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
-import type { GymExerciseForm, SwimSeriesForm } from "@/lib/db/saveWorkout";
+import { swimCaloriesForUser, type GymExerciseForm, type SwimSeriesForm } from "@/lib/db/saveWorkout";
 import type { WorkoutStatus } from "@/lib/features/workouts/workoutStatus";
 
 export type LoadedGymWorkout = {
@@ -374,12 +374,23 @@ export async function updateSwimWorkoutToSupabase(params: {
 
   const total_distance = rows.reduce((sum, r) => sum + r.distance, 0);
   const notesTrim = params.notes.trim();
+  const { data: existing } = await supabase
+    .from("workouts")
+    .select("duration_minutes")
+    .eq("id", params.workoutId)
+    .maybeSingle();
+  const caloriesEstimated = await swimCaloriesForUser(
+    user.userId,
+    rows,
+    existing?.duration_minutes
+  );
 
   const { error: wErr } = await supabase
     .from("workouts")
     .update({
       date: params.date,
       total_distance,
+      calories_estimated: caloriesEstimated,
       notes: notesTrim || null,
     })
     .eq("id", params.workoutId)
@@ -543,6 +554,7 @@ export async function upsertActiveSwimWorkout(params: {
 
   const total_distance = rows.reduce((sum, r) => sum + r.distance, 0);
   const notesTrim = params.notes.trim();
+  const caloriesEstimated = await swimCaloriesForUser(user.userId, rows);
 
   const { data: workout, error: wErr } = await supabase
     .from("workouts")
@@ -553,7 +565,7 @@ export async function upsertActiveSwimWorkout(params: {
       body_weight: null,
       total_tonnage: null,
       total_distance,
-      calories_estimated: null,
+      calories_estimated: caloriesEstimated,
       notes: notesTrim || null,
       status: "active",
     })

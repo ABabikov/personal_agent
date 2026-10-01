@@ -210,3 +210,70 @@ export function estimateGymCalories(input: GymCalorieInput): GymCalorieEstimate 
     setCount,
   };
 }
+
+/**
+ * Метров в минуту вместе с отдыхом между сериями.
+ * 37.5 м/мин — это 2:40 на 100 м, середина фактического темпа 2:30–2:50 на всю тренировку.
+ */
+export const SWIM_PACE_M_PER_MIN = 37.5;
+
+export type SwimSeriesCaloriesInput = {
+  distanceM: number;
+  description?: string;
+};
+
+/** Стиль из текста серии. Без подсказки — кроль в умеренном темпе. */
+export function swimMetFromDescription(description: string): number {
+  const text = description.toLowerCase().replace(/ё/g, "е");
+  if (/баттерфл|бабочк|дельфин/.test(text)) return MET_VALUES.swim.butterfly;
+  if (/брасс/.test(text)) return MET_VALUES.swim.breaststroke;
+  if (/спин/.test(text)) return MET_VALUES.swim.heavy;
+  if (/легк|восстанов|разминк|заминк/.test(text)) return MET_VALUES.swim.light;
+  if (/80%|быстр|интенсив|ускорен/.test(text)) return MET_VALUES.swim.heavy;
+  return MET_VALUES.swim.moderate;
+}
+
+/**
+ * Калории плавания: MET по стилю × вес × минуты.
+ * Минуты — из длительности тренировки, иначе дистанция при темпе 2:40 на 100 м.
+ */
+export function estimateSwimCalories(input: {
+  bodyWeightKg: number;
+  series: SwimSeriesCaloriesInput[];
+  durationMinOverride?: number | null;
+}): { calories: number; durationMin: number; met: number } | null {
+  if (!Number.isFinite(input.bodyWeightKg) || input.bodyWeightKg <= 0) return null;
+  const series = input.series.filter((row) => row.distanceM > 0);
+  const distance = series.reduce((sum, row) => sum + row.distanceM, 0);
+  const durationOverride =
+    input.durationMinOverride != null && input.durationMinOverride > 0 ? input.durationMinOverride : null;
+  if (distance <= 0 && durationOverride == null) return null;
+
+  if (distance <= 0 && durationOverride != null) {
+    const met = MET_VALUES.swim.moderate;
+    return {
+      calories: estimateWorkoutCalories(met, input.bodyWeightKg, durationOverride),
+      durationMin: Math.round(durationOverride),
+      met,
+    };
+  }
+
+  let calories = 0;
+  let durationMin = 0;
+  let metWeighted = 0;
+  for (const row of series) {
+    const met = swimMetFromDescription(row.description ?? "");
+    const minutes =
+      durationOverride != null
+        ? durationOverride * (row.distanceM / distance)
+        : row.distanceM / SWIM_PACE_M_PER_MIN;
+    calories += caloriesPerMinute(met, input.bodyWeightKg) * minutes;
+    durationMin += minutes;
+    metWeighted += met * row.distanceM;
+  }
+  return {
+    calories: Math.round(calories),
+    durationMin: Math.round(durationMin),
+    met: Math.round((metWeighted / distance) * 10) / 10,
+  };
+}

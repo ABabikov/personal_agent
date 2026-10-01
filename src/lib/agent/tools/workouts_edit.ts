@@ -16,6 +16,7 @@ import { supabase } from "@/lib/db/supabase";
 import { loadUserProfile } from "@/lib/db/profile";
 import { exerciseTonnage, totalTonnage } from "@/lib/features/workouts/tonnage";
 import { estimateGymCalories } from "@/lib/features/workouts/calories";
+import { swimCaloriesForUser } from "@/lib/db/saveWorkout";
 import type { Database, GymSet } from "@/types/database";
 
 type WorkoutUpdate = Database["public"]["Tables"]["workouts"]["Update"];
@@ -390,7 +391,7 @@ export const updateSwimSeriesTool: AgentTool = {
     "ПОЛНАЯ замена серий плавательной тренировки. Старые `swim_series` удаляются, вставляются новые.",
     "",
     "ВАЖНО: перед апдейтом — get_workout_details(id), покажи diff, получи подтверждение.",
-    "Автоматически пересчитывается `workouts.total_distance` = sum(distance).",
+    "Автоматически пересчитывается `workouts.total_distance` = sum(distance) и оценка калорий по дистанции и весу из профиля.",
     "",
     "Кейсы:",
     "— «вторая серия была 8×50, не 8×100»,",
@@ -458,9 +459,10 @@ export const updateSwimSeriesTool: AgentTool = {
     if (insErr) return { ok: false, error: `Не удалось вставить серии: ${insErr.message}` };
 
     const totalDistance = rows.reduce((a, r) => a + r.distance, 0);
+    const caloriesEstimated = await swimCaloriesForUser(ctx.userId, rows, w.duration_minutes);
     const { error: wErr } = await supabase
       .from("workouts")
-      .update({ total_distance: totalDistance })
+      .update({ total_distance: totalDistance, calories_estimated: caloriesEstimated })
       .eq("id", id);
     if (wErr) return { ok: false, error: `Не удалось обновить тренировку: ${wErr.message}` };
 
@@ -470,6 +472,7 @@ export const updateSwimSeriesTool: AgentTool = {
         updated: true,
         workout_id: id,
         new_total_distance: totalDistance,
+        new_calories_estimated: caloriesEstimated,
         series_count: rows.length,
       },
     };

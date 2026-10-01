@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/db/supabase";
+import { loadUserProfile } from "@/lib/db/profile";
 import { exerciseTonnage, totalTonnage } from "@/lib/features/workouts/tonnage";
-import { estimateGymCalories } from "@/lib/features/workouts/calories";
+import { estimateGymCalories, estimateSwimCalories } from "@/lib/features/workouts/calories";
 import type { GymSet } from "@/types/database";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 
@@ -110,7 +111,7 @@ export async function saveSwimWorkoutToSupabase(params: {
   date: string;
   series: SwimSeriesForm[];
   notes: string;
-}): Promise<{ ok: true } | { error: string }> {
+}): Promise<{ ok: true; caloriesEstimated: number | null } | { error: string }> {
   const user = await getWorkoutUserId();
   if ("error" in user) return user;
 
@@ -128,6 +129,7 @@ export async function saveSwimWorkoutToSupabase(params: {
 
   const total_distance = rows.reduce((sum, r) => sum + r.distance, 0);
   const notesTrim = params.notes.trim();
+  const caloriesEstimated = await swimCaloriesForUser(user.userId, rows);
 
   const { data: workout, error: wErr } = await supabase
     .from("workouts")
@@ -138,7 +140,7 @@ export async function saveSwimWorkoutToSupabase(params: {
       body_weight: null,
       total_tonnage: null,
       total_distance,
-      calories_estimated: null,
+      calories_estimated: caloriesEstimated,
       notes: notesTrim || null,
       status: "completed",
     })
@@ -163,5 +165,25 @@ export async function saveSwimWorkoutToSupabase(params: {
     return { error: sErr.message };
   }
 
-  return { ok: true };
+  return { ok: true, caloriesEstimated };
+}
+
+export async function swimCaloriesForUser(
+  userId: string,
+  series: { distance: number; description?: string }[],
+  durationMin?: number | null
+): Promise<number | null> {
+  const profile = await loadUserProfile(userId);
+  if ("error" in profile) return null;
+  const weight = profile.data?.weight ?? null;
+  if (weight == null || weight <= 0) return null;
+  const est = estimateSwimCalories({
+    bodyWeightKg: weight,
+    series: series.map((row) => ({
+      distanceM: row.distance,
+      description: row.description,
+    })),
+    durationMinOverride: durationMin,
+  });
+  return est?.calories ?? null;
 }

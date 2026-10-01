@@ -134,6 +134,7 @@ export const saveSwimWorkoutTool: AgentTool = {
   name: "save_swim_workout",
   description: [
     "Сохраняет тренировку плавания: набор серий, каждая = дистанция (м) + текстовое описание стиля/режима.",
+    "Калории оцениваются по весу из профиля и дистанции: 2:40 на 100 м вместе с отдыхом. Брасс и баттерфляй дороже кроля, если это есть в описании серии.",
     "ВАЖНО: подтверждай намерение у пользователя перед записью.",
     "",
     "Кейсы: «запиши, что я сегодня плавал 200 кроль разминка, 8×100 кролем по 1.40, 200 заминка».",
@@ -184,7 +185,10 @@ export const saveSwimWorkoutTool: AgentTool = {
 
     const r = await saveSwimWorkoutToSupabase({ date, series, notes });
     if ("error" in r) return { ok: false, error: r.error };
-    return { ok: true, data: { saved: true, date, series: series.length } };
+    return {
+      ok: true,
+      data: { saved: true, date, series: series.length, calories_estimated: r.caloriesEstimated },
+    };
   },
 };
 

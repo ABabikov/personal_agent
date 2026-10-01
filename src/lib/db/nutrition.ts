@@ -1,6 +1,7 @@
 import { loadUserProfile } from "@/lib/db/profile";
 import { supabase } from "@/lib/db/supabase";
 import { dishPer100, macrosForGrams } from "@/lib/features/nutrition/dishMacros";
+import { estimateSwimCalories } from "@/lib/features/workouts/calories";
 import { summarizeWeek, weekDates, type WeekSummary } from "@/lib/features/nutrition/week";
 import { todayIso, type MealSlotId } from "@/lib/features/nutrition/slots";
 import {
@@ -65,6 +66,58 @@ export type FoodLogEntry = {
 function num(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+async function workoutKcalRows(
+  rows: {
+    id: string;
+    date: string;
+    type: string;
+    calories_estimated: number | null;
+    duration_minutes: number | null;
+    total_distance: number | null;
+  }[],
+  weightKg: number | null
+): Promise<{ date: string; kcal: number }[]> {
+  const missingSwim = rows.filter((row) => row.type === "swim" && num(row.calories_estimated) <= 0);
+  const seriesByWorkout = new Map<string, { distanceM: number; description: string }[]>();
+  if (missingSwim.length > 0 && weightKg != null && weightKg > 0) {
+    const seriesRes = await supabase
+      .from("swim_series")
+      .select("workout_id, distance, description")
+      .in(
+        "workout_id",
+        missingSwim.map((row) => row.id)
+      );
+    if (!seriesRes.error) {
+      for (const series of seriesRes.data ?? []) {
+        const list = seriesByWorkout.get(series.workout_id) ?? [];
+        list.push({ distanceM: num(series.distance), description: series.description ?? "" });
+        seriesByWorkout.set(series.workout_id, list);
+      }
+    }
+  }
+
+  return rows.map((row) => {
+    const stored = num(row.calories_estimated);
+    if (stored > 0 || row.type !== "swim" || weightKg == null || weightKg <= 0) {
+      return { date: row.date, kcal: stored };
+    }
+    const fromSeries = seriesByWorkout.get(row.id) ?? [];
+    const series =
+      fromSeries.length > 0
+        ? fromSeries
+        : num(row.total_distance) > 0
+          ? [{ distanceM: num(row.total_distance), description: "" }]
+          : [];
+    const duration = num(row.duration_minutes);
+    const est = estimateSwimCalories({
+      bodyWeightKg: weightKg,
+      series,
+      durationMinOverride: duration > 0 ? duration : null,
+    });
+    return { date: row.date, kcal: est?.calories ?? 0 };
+  });
 }
 
 function numOrNull(v: unknown): number | null {
@@ -691,7 +744,7 @@ export async function loadNutritionWeek(
       .lte("weighed_on", to),
     supabase
       .from("workouts")
-      .select("date, calories_estimated")
+      .select("id, date, type, calories_estimated, duration_minutes, total_distance")
       .eq("user_id", userId)
       .gte("date", from)
       .lte("date", to)
@@ -727,10 +780,7 @@ export async function loadNutritionWeek(
     bmr,
     entries: (entriesRes.data ?? []).map(mapEntry),
     weights: (weightsRes.data ?? []).map((row) => ({ date: row.weighed_on, kg: num(row.kg) })),
-    workouts: (workoutsRes.data ?? []).map((row) => ({
-      date: row.date,
-      kcal: num(row.calories_estimated),
-    })),
+    workouts: await workoutKcalRows(workoutsRes.data ?? [], profile?.weight ?? null),
   });
   return { week, targetKcal: computed.ok ? computed.target.kcal : null };
 }

@@ -152,7 +152,7 @@ export function NutritionWeekCard({
           </p>
         )}
         <p className="text-[11px] text-muted-foreground">
-          Расход — обмен покоя плюс калории тренировок из журнала. В норму еды не входит.
+          Расход — обмен покоя плюс калории зала и плавания из журнала. В норму еды не входит.
         </p>
       </CardContent>
     </Card>
