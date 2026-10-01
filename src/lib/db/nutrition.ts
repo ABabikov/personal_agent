@@ -74,7 +74,6 @@ async function workoutKcalRows(
     date: string;
     type: string;
     calories_estimated: number | null;
-    duration_minutes: number | null;
     total_distance: number | null;
   }[],
   weightKg: number | null
@@ -110,11 +109,9 @@ async function workoutKcalRows(
         : num(row.total_distance) > 0
           ? [{ distanceM: num(row.total_distance), description: "" }]
           : [];
-    const duration = num(row.duration_minutes);
     const est = estimateSwimCalories({
       bodyWeightKg: weightKg,
       series,
-      durationMinOverride: duration > 0 ? duration : null,
     });
     return { date: row.date, kcal: est?.calories ?? 0 };
   });
@@ -744,7 +741,7 @@ export async function loadNutritionWeek(
       .lte("weighed_on", to),
     supabase
       .from("workouts")
-      .select("id, date, type, calories_estimated, duration_minutes, total_distance")
+      .select("id, date, type, calories_estimated, total_distance")
       .eq("user_id", userId)
       .gte("date", from)
       .lte("date", to)

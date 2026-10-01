@@ -374,16 +374,7 @@ export async function updateSwimWorkoutToSupabase(params: {
 
   const total_distance = rows.reduce((sum, r) => sum + r.distance, 0);
   const notesTrim = params.notes.trim();
-  const { data: existing } = await supabase
-    .from("workouts")
-    .select("duration_minutes")
-    .eq("id", params.workoutId)
-    .maybeSingle();
-  const caloriesEstimated = await swimCaloriesForUser(
-    user.userId,
-    rows,
-    existing?.duration_minutes
-  );
+  const caloriesEstimated = await swimCaloriesForUser(user.userId, rows);
 
   const { error: wErr } = await supabase
     .from("workouts")

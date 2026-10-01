@@ -459,7 +459,7 @@ export const updateSwimSeriesTool: AgentTool = {
     if (insErr) return { ok: false, error: `Не удалось вставить серии: ${insErr.message}` };
 
     const totalDistance = rows.reduce((a, r) => a + r.distance, 0);
-    const caloriesEstimated = await swimCaloriesForUser(ctx.userId, rows, w.duration_minutes);
+    const caloriesEstimated = await swimCaloriesForUser(ctx.userId, rows);
     const { error: wErr } = await supabase
       .from("workouts")
       .update({ total_distance: totalDistance, calories_estimated: caloriesEstimated })
