@@ -7,6 +7,7 @@ import {
   logDishPortion,
   logProductPortion,
   logQuickMeal,
+  findFoodProductByExternalId,
   saveDish,
   saveFoodProduct,
   saveNutritionSettings,
@@ -31,14 +32,36 @@ function asUnit(raw: unknown): AmountUnit {
   return raw === "piece" || raw === "tbsp" ? raw : "g";
 }
 
+function asNumber(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim() && Number.isFinite(Number(raw))) return Number(raw);
+  return null;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function productSnapshot(raw: Record<string, unknown>): Record<string, unknown> | null {
+  const nested = raw.product && typeof raw.product === "object" ? (raw.product as Record<string, unknown>) : null;
+  const sourceRow = nested ?? raw;
+  const name = typeof sourceRow.name === "string" ? sourceRow.name.trim() : "";
+  if (!name || asNumber(sourceRow.kcalPer100) == null) return null;
+  return sourceRow;
+}
+
 async function resolveDishLine(
   userId: string,
   raw: Record<string, unknown>
 ): Promise<{ productId: string; grams: number } | { error: string }> {
   const unit = asUnit(raw.unit);
-  const amount = typeof raw.amount === "number" ? raw.amount : typeof raw.grams === "number" ? raw.grams : null;
+  const amount = asNumber(raw.amount) ?? asNumber(raw.grams);
 
-  let productId = typeof raw.productId === "string" ? raw.productId : "";
+  const rawProductId = typeof raw.productId === "string" ? raw.productId.trim() : "";
+  const externalId =
+    (typeof raw.externalId === "string" && raw.externalId.trim()) ||
+    (rawProductId && !isUuid(rawProductId) ? rawProductId : "");
+  let productId = rawProductId && isUuid(rawProductId) ? rawProductId : "";
   let pieceGrams: number | null = null;
   let tbspGrams: number | null = null;
 
@@ -60,22 +83,32 @@ async function resolveDishLine(
     tbspGrams = food.tbspGrams ?? null;
   }
 
-  if (!productId && raw.product && typeof raw.product === "object") {
-    const p = raw.product as Record<string, unknown>;
-    const source = p.source === "magnit" || p.source === "yarche" || p.source === "manual" ? p.source : "manual";
+  const snapshot = productSnapshot(raw);
+  if (!productId && snapshot) {
+    const source =
+      snapshot.source === "magnit" || snapshot.source === "yarche" || snapshot.source === "manual"
+        ? snapshot.source
+        : "manual";
     const saved = await saveFoodProduct(userId, {
-      name: String(p.name ?? ""),
+      name: String(snapshot.name ?? ""),
       source,
-      externalId: typeof p.externalId === "string" ? p.externalId : null,
-      kcalPer100: Number(p.kcalPer100),
-      proteinPer100: Number(p.proteinPer100),
-      fatPer100: Number(p.fatPer100),
-      carbsPer100: Number(p.carbsPer100),
-      packageGrams: typeof p.packageGrams === "number" ? p.packageGrams : null,
-      url: typeof p.url === "string" ? p.url : null,
+      externalId:
+        (typeof snapshot.externalId === "string" && snapshot.externalId.trim()) || externalId || null,
+      kcalPer100: asNumber(snapshot.kcalPer100) ?? Number.NaN,
+      proteinPer100: asNumber(snapshot.proteinPer100) ?? Number.NaN,
+      fatPer100: asNumber(snapshot.fatPer100) ?? Number.NaN,
+      carbsPer100: asNumber(snapshot.carbsPer100) ?? Number.NaN,
+      packageGrams: asNumber(snapshot.packageGrams),
+      url: typeof snapshot.url === "string" ? snapshot.url : null,
     });
     if ("error" in saved) return saved;
     productId = saved.product.id;
+  }
+
+  if (!productId && externalId) {
+    const found = await findFoodProductByExternalId(userId, externalId);
+    if ("error" in found) return found;
+    if (found.product) productId = found.product.id;
   }
 
   if (!productId && typeof raw.query === "string" && raw.query.trim().length >= 2) {
@@ -111,10 +144,16 @@ async function resolveDishLine(
     }
   }
 
-  if (!productId) return { error: "У ингредиента нет productId, referenceId, query или product." };
+  if (!productId) {
+    return {
+      error: externalId
+        ? `Карточка ${externalId} не сохранена: передай product с name и КБЖУ из поиска, не один externalId. Блюдо не записано.`
+        : "У ингредиента нет productId, referenceId, query или product. Блюдо не записано.",
+    };
+  }
   const grams =
-    unit === "g" && typeof raw.grams === "number"
-      ? raw.grams
+    unit === "g" && asNumber(raw.grams) != null
+      ? (asNumber(raw.grams) as number)
       : gramsFromAmount(amount ?? 0, unit, { pieceGrams, tbspGrams });
   if (grams == null) {
     return { error: "Не получилось перевести количество в граммы. Для штук и ложек нужен справочный продукт." };
@@ -411,7 +450,9 @@ export const saveDishTool: AgentTool = {
   name: "save_dish",
   description: [
     "Сохраняет своё блюдо, чтобы потом записывать порции. В дневник само не пишет.",
-    "Ингредиент: referenceId из справочника, productId своего продукта, query (если совпадение одно) или product с КБЖУ карточки Магнита/Ярче.",
+    "Ингредиент: referenceId из справочника, productId своего продукта (uuid), query (если совпадение одно) или product с КБЖУ карточки Магнита/Ярче.",
+    "Карточку магазина передавай целиком в product: name, kcalPer100, proteinPer100, fatPer100, carbsPer100, source, externalId. Один externalId без КБЖУ не записывается, блюдо целиком не сохраняется.",
+    "Повтор с тем же названием заменяет прежнее блюдо, а не создаёт копию.",
     "Количество: grams, либо amount + unit (g, piece, tbsp). Яйцо: unit piece, 1 шт = 55 г. Манка: unit tbsp, 1 ст. л. = 20 г.",
     "cookedWeightG — вес готового. Если не передан, берётся сумма граммов ингредиентов.",
     "Вызывай после явного «занеси» / «да», когда состав уже показан.",
@@ -432,6 +473,14 @@ export const saveDishTool: AgentTool = {
             grams: { type: "number" },
             amount: { type: "number" },
             unit: { type: "string", enum: ["g", "piece", "tbsp"] },
+            name: { type: "string" },
+            kcalPer100: { type: "number" },
+            proteinPer100: { type: "number" },
+            fatPer100: { type: "number" },
+            carbsPer100: { type: "number" },
+            source: { type: "string", enum: ["manual", "magnit", "yarche"] },
+            externalId: { type: "string" },
+            url: { type: "string" },
             product: {
               type: "object",
               properties: {

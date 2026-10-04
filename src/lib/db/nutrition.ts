@@ -306,10 +306,15 @@ export async function saveFoodProduct(
   return { product: mapProduct(data) };
 }
 
+const PRODUCT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function getFoodProduct(
   userId: string,
   id: string
 ): Promise<{ product: FoodProduct } | { error: string }> {
+  if (!PRODUCT_UUID.test(id)) {
+    return { error: `«${id}» — id карточки магазина, не своего продукта.` };
+  }
   const { data, error } = await supabase
     .from("food_products")
     .select("*")
@@ -319,6 +324,23 @@ export async function getFoodProduct(
   if (error) return { error: error.message };
   if (!data) return { error: "Продукт не найден." };
   return { product: mapProduct(data) };
+}
+
+export async function findFoodProductByExternalId(
+  userId: string,
+  externalId: string
+): Promise<{ product: FoodProduct | null } | { error: string }> {
+  const key = externalId.trim();
+  if (!key) return { product: null };
+  const { data, error } = await supabase
+    .from("food_products")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("external_id", key)
+    .limit(1);
+  if (error) return { error: error.message };
+  const row = data?.[0];
+  return { product: row ? mapProduct(row) : null };
 }
 
 async function insertLog(
@@ -503,6 +525,9 @@ export async function saveDish(
     cooked
   );
   if ("error" in calc) return calc;
+
+  const { error: dropErr } = await supabase.from("dishes").delete().eq("user_id", userId).eq("name", name);
+  if (dropErr) return { error: dropErr.message };
 
   const { data: dish, error } = await supabase
     .from("dishes")
