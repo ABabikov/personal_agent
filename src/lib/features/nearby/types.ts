@@ -49,4 +49,6 @@ export type ScoredNearbyEvent = {
   score: number;
   why: string;
   startsOn: string | null;
+  title: string;
+  place: string | null;
 };

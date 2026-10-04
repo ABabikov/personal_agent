@@ -1,18 +1,21 @@
 import { chatCompletion } from "@/lib/agent/llm/openrouter";
 import { hasLlmApiKey } from "@/lib/agent/llm/models";
+import { isCatalogTitle } from "@/lib/features/nearby/collect";
 import { interestHint } from "@/lib/features/nearby/defaults";
 import type { NearbyCandidate, ScoredNearbyEvent } from "@/lib/features/nearby/types";
 import { dateInsideWindow } from "@/lib/features/nearby/window";
 
-const RANK_SYSTEM = `Ты делаешь выжимку городской афиши. Ответь только JSON без пояснений.
-Формат: {"digest":"string","picks":[{"key":"e1","score":80,"why":"string","startsOn":"YYYY-MM-DD"}]}
-Оставь события, на которые в этом городе реально можно прийти в указанном окне: спектакли, домашние матчи хоккея и волейбола, выставки, концерты, фестивали, разовые выезды вроде прыжков с верёвки, аэротрубы и верёвочного парка, плюс личные интересы (плавание, гонки).
-Личный интерес усиливает событие, но не выкидывай остальную афишу.
-Выкинь выездные матчи, детские старты без взрослой категории, новости «уже прошло», энциклопедии и подборки без даты и места.
-Если кандидатов хватает, оставь 10–16 событий, не сжимай список до двух-трёх.
-why — одна короткая фраза по-русски. Без эмодзи.
-digest — выжимка по темам (сцена, спорт, выставки), с датами. Только события из picks. Без эмодзи.
-startsOn — дата из текста или null. score — целое 0–100.`;
+const RANK_SYSTEM = `Ты пишешь выжимку конкретных событий, на которые можно прийти в этом городе.
+Ответь только JSON без пояснений.
+Формат: {"digest":"string","picks":[{"key":"e1","title":"string","score":80,"why":"string","place":"string или null","startsOn":"YYYY-MM-DD или null"}]}
+Каждый pick — одно событие: спектакль, домашний матч с соперником, выставка, концерт, фестиваль, старт, прыжки.
+Страница «афиша», «календарь», «расписание», «купить билеты», «на выбор» — не событие. Если в тексте страницы названо конкретное событие, возьми его имя в title, а ссылку оставь как место, где читать подробности.
+title — короткое имя события, не заголовок поисковой выдачи.
+why — два предложения: что это, где и когда. Не пиши «совпадает с интересом» и не называй сайт.
+place — площадка из текста или null.
+Выкинь выездные матчи, детские старты без взрослой категории и то, что уже прошло.
+Оставь до 12 событий. score — целое 0–100.
+digest — те же события связным текстом: дата, имя и суть. Не своди тему к одной дате без имени события. Без эмодзи.`;
 
 export type RankResult = {
   digest: string;
@@ -47,7 +50,7 @@ export async function rankNearbyCandidates(input: {
           { role: "user", content: rankPrompt(input, tagged) },
         ],
         temperature: 0.2,
-        maxTokens: 1400,
+        maxTokens: 2200,
       });
       const parsed = parseRank(completion.content ?? "");
       if (parsed) {
@@ -57,7 +60,7 @@ export async function rankNearbyCandidates(input: {
             .map((pick) => toScored(pick, tagged, input.today, input.until))
             .filter((pick): pick is ScoredNearbyEvent => pick != null)
             .sort((a, b) => b.score - a.score)
-            .slice(0, 16),
+            .slice(0, 12),
           rankedByModel: true,
         };
       }
@@ -84,7 +87,7 @@ function rankPrompt(
   const lines = tagged.map(({ key, candidate }) => {
     const when = candidate.startsOn ?? "дата не указана";
     const place = candidate.place ? ` | ${candidate.place}` : "";
-    return `${key} | ${candidate.source} | ${when}${place} | ${candidate.title} | ${candidate.snippet.slice(0, 280)}`;
+    return `${key} | ${candidate.source} | ${when}${place} | ${candidate.title} | ${candidate.snippet.slice(0, 420)}`;
   });
   return [
     `Город: ${input.cityLabel}`,
@@ -97,7 +100,14 @@ function rankPrompt(
   ].join("\n");
 }
 
-type RawPick = { key?: unknown; score?: unknown; why?: unknown; startsOn?: unknown };
+type RawPick = {
+  key?: unknown;
+  title?: unknown;
+  score?: unknown;
+  why?: unknown;
+  place?: unknown;
+  startsOn?: unknown;
+};
 
 function parseRank(content: string): { digest: string; picks: RawPick[] } | null {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -128,14 +138,19 @@ function toScored(
   if (!found) return null;
   const score = typeof pick.score === "number" ? pick.score : Number(pick.score);
   if (!Number.isFinite(score) || score < 50) return null;
-  const why = clip(typeof pick.why === "string" ? pick.why : "", 220);
-  if (!why) return null;
+  const title = clip(typeof pick.title === "string" ? pick.title : "", 140) || found.candidate.title;
+  if (!title || isCatalogTitle(title)) return null;
+  const why = clip(typeof pick.why === "string" ? pick.why : "", 420);
+  if (why.length < 40 || /совпадает с интересом/i.test(why)) return null;
+  const modelPlace = typeof pick.place === "string" ? clip(pick.place, 120) : "";
   const modelDate = dateInsideWindow(typeof pick.startsOn === "string" ? pick.startsOn : null, today, until);
   return {
     candidate: found.candidate,
     score: Math.max(0, Math.min(100, Math.round(score))),
     why,
     startsOn: modelDate ?? found.candidate.startsOn,
+    title,
+    place: modelPlace || found.candidate.place,
   };
 }
 
@@ -153,12 +168,17 @@ function heuristicPicks(
     ...matched.filter((item) => item.candidate.startsOn),
     ...matched.filter((item) => !item.candidate.startsOn),
   ];
-  return ordered.slice(0, 8).map(({ candidate }) => ({
-    candidate,
-    score: candidate.startsOn ? 60 : 52,
-    why: `Совпадает с интересом «${candidate.interestLabel}».`,
-    startsOn: candidate.startsOn,
-  }));
+  return ordered
+    .filter(({ candidate }) => !isCatalogTitle(candidate.title) && candidate.snippet.length >= 40)
+    .slice(0, 8)
+    .map(({ candidate }) => ({
+      candidate,
+      score: candidate.startsOn ? 60 : 52,
+      why: clip(candidate.snippet, 280),
+      startsOn: candidate.startsOn,
+      title: candidate.title,
+      place: candidate.place,
+    }));
 }
 
 function fallbackDigest(cityLabel: string, picks: ScoredNearbyEvent[]): string {

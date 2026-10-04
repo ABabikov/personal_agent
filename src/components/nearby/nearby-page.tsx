@@ -36,14 +36,6 @@ function formatRefreshed(iso: string): string {
   }).format(new Date(iso));
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
 export function NearbyPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [settings, setSettings] = useState<NearbySettingsView | null>(null);
@@ -329,7 +321,7 @@ export function NearbyPage() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
               >
-                {hostOf(event.url) || "Открыть"}
+                Подробнее
                 <ExternalLink className="size-3.5" />
               </a>
               <Button

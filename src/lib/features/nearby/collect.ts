@@ -252,6 +252,15 @@ function blockedUrl(url: string): boolean {
   }
 }
 
+const CATALOG_TITLE =
+  /афиша|календарь|расписан|купить билет|билеты на|заказ билет|на выбор|разнообразие|известных исполнител|домашние матчи|матчи в рамках|соревнования по |выставки и |концерты джаз|спектакли в |концерты в |фестивали в |мероприят/;
+
+/** Заголовок подборки, а не имя одного события. */
+export function isCatalogTitle(title: string): boolean {
+  if (/[«"][^»"]{3,}[»"]/.test(title)) return false;
+  return CATALOG_TITLE.test(title.toLowerCase());
+}
+
 export function normalizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
