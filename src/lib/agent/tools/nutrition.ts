@@ -16,7 +16,8 @@ import {
 } from "@/lib/db/nutrition";
 import { searchMagnit } from "@/lib/features/nutrition/magnitCatalog";
 import { searchYarche } from "@/lib/features/nutrition/yarcheCatalog";
-import { REFERENCE_FOODS, searchReferenceFoods } from "@/lib/features/nutrition/referenceCatalog";
+import { REFERENCE_FOODS, foodQueryMatches, searchReferenceFoods } from "@/lib/features/nutrition/referenceCatalog";
+import { gramsFromAmount, type AmountUnit } from "@/lib/features/nutrition/portionUnits";
 import { isMealSlot, todayIso, type MealSlotId } from "@/lib/features/nutrition/slots";
 import { suggestRemainingMeals, type MealSuggestion } from "@/lib/features/nutrition/suggest";
 import type { NutritionSettings } from "@/lib/features/nutrition/targets";
@@ -24,6 +25,116 @@ import type { NutritionSettings } from "@/lib/features/nutrition/targets";
 function dateOrToday(raw: unknown): string {
   if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   return todayIso();
+}
+
+function asUnit(raw: unknown): AmountUnit {
+  return raw === "piece" || raw === "tbsp" ? raw : "g";
+}
+
+async function resolveDishLine(
+  userId: string,
+  raw: Record<string, unknown>
+): Promise<{ productId: string; grams: number } | { error: string }> {
+  const unit = asUnit(raw.unit);
+  const amount = typeof raw.amount === "number" ? raw.amount : typeof raw.grams === "number" ? raw.grams : null;
+
+  let productId = typeof raw.productId === "string" ? raw.productId : "";
+  let pieceGrams: number | null = null;
+  let tbspGrams: number | null = null;
+
+  if (!productId && typeof raw.referenceId === "string") {
+    const food = REFERENCE_FOODS.find((item) => item.id === raw.referenceId);
+    if (!food) return { error: `В справочнике нет ${raw.referenceId}.` };
+    const saved = await saveFoodProduct(userId, {
+      name: food.name,
+      source: "manual",
+      externalId: `ref:${food.id}`,
+      kcalPer100: food.kcalPer100,
+      proteinPer100: food.proteinPer100,
+      fatPer100: food.fatPer100,
+      carbsPer100: food.carbsPer100,
+    });
+    if ("error" in saved) return saved;
+    productId = saved.product.id;
+    pieceGrams = food.pieceGrams ?? null;
+    tbspGrams = food.tbspGrams ?? null;
+  }
+
+  if (!productId && raw.product && typeof raw.product === "object") {
+    const p = raw.product as Record<string, unknown>;
+    const source = p.source === "magnit" || p.source === "yarche" || p.source === "manual" ? p.source : "manual";
+    const saved = await saveFoodProduct(userId, {
+      name: String(p.name ?? ""),
+      source,
+      externalId: typeof p.externalId === "string" ? p.externalId : null,
+      kcalPer100: Number(p.kcalPer100),
+      proteinPer100: Number(p.proteinPer100),
+      fatPer100: Number(p.fatPer100),
+      carbsPer100: Number(p.carbsPer100),
+      packageGrams: typeof p.packageGrams === "number" ? p.packageGrams : null,
+      url: typeof p.url === "string" ? p.url : null,
+    });
+    if ("error" in saved) return saved;
+    productId = saved.product.id;
+  }
+
+  if (!productId && typeof raw.query === "string" && raw.query.trim().length >= 2) {
+    const reference = searchReferenceFoods(raw.query, 5);
+    if (reference.length === 1) {
+      const food = reference[0];
+      const saved = await saveFoodProduct(userId, {
+        name: food.name,
+        source: "manual",
+        externalId: `ref:${food.id}`,
+        kcalPer100: food.kcalPer100,
+        proteinPer100: food.proteinPer100,
+        fatPer100: food.fatPer100,
+        carbsPer100: food.carbsPer100,
+      });
+      if ("error" in saved) return saved;
+      productId = saved.product.id;
+      pieceGrams = food.pieceGrams ?? null;
+      tbspGrams = food.tbspGrams ?? null;
+    } else if (reference.length > 1) {
+      return {
+        error: `«${raw.query}» — несколько продуктов: ${reference.map((item) => `${item.name} (${item.id})`).join(", ")}. Укажи referenceId.`,
+      };
+    } else {
+      const local = await searchLocalProducts(userId, raw.query, 5);
+      if ("error" in local) return local;
+      if (local.products.length === 1) productId = local.products[0].id;
+      else if (local.products.length > 1) {
+        return {
+          error: `«${raw.query}» — несколько своих продуктов: ${local.products.map((item) => item.name).join(", ")}. Укажи productId.`,
+        };
+      } else return { error: `Не нашёл продукт «${raw.query}». Сначала search_food_products.` };
+    }
+  }
+
+  if (!productId) return { error: "У ингредиента нет productId, referenceId, query или product." };
+  const grams =
+    unit === "g" && typeof raw.grams === "number"
+      ? raw.grams
+      : gramsFromAmount(amount ?? 0, unit, { pieceGrams, tbspGrams });
+  if (grams == null) {
+    return { error: "Не получилось перевести количество в граммы. Для штук и ложек нужен справочный продукт." };
+  }
+  return { productId, grams };
+}
+
+async function findSavedDish(userId: string, raw: { dishId?: unknown; dishName?: unknown }) {
+  const listed = await listDishes(userId);
+  if ("error" in listed) return listed;
+  if (typeof raw.dishId === "string" && raw.dishId) {
+    const dish = listed.dishes.find((item) => item.id === raw.dishId);
+    return dish ? { dish } : { error: "Такого блюда нет." };
+  }
+  const name = typeof raw.dishName === "string" ? raw.dishName.trim() : "";
+  if (!name) return { error: "Нужно dishId или dishName." };
+  const hits = listed.dishes.filter((item) => foodQueryMatches(name, item.name));
+  if (hits.length === 1) return { dish: hits[0] };
+  if (hits.length === 0) return { error: `Сохранённого блюда «${name}» нет. Сначала save_dish.` };
+  return { error: `Несколько блюд: ${hits.map((item) => `${item.name} (${item.id})`).join(", ")}.` };
 }
 
 function slotOr(raw: unknown, fallback: MealSlotId): MealSlotId {
@@ -110,7 +221,7 @@ export const logFoodTool: AgentTool = {
   name: "log_food",
   description: [
     "Записывает съеденное в дневник. Только после явного «да».",
-    "Варианты одной записи: productId+grams (свой продукт), dishId+grams (своё блюдо),",
+    "Варианты одной записи: productId+grams (свой продукт), dishId или dishName + grams или fraction (своё блюдо),",
     "product{name,kcalPer100,proteinPer100,fatPer100,carbsPer100,grams,source,externalId} — сохранить карточку и записать порцию,",
     "quick{label,kcal,proteinG,fatG,carbsG} — только калории, без продукта.",
     "КБЖУ бренда не выдумывай: сначала search_food_products. Если карточки нет — спроси цифры с упаковки.",
@@ -123,7 +234,9 @@ export const logFoodTool: AgentTool = {
       productId: { type: "string" },
       referenceId: { type: "string", description: "id из search_food_products.reference, например beef-braised" },
       dishId: { type: "string" },
+      dishName: { type: "string", description: "Название сохранённого блюда, если id неизвестен" },
       grams: { type: "number" },
+      fraction: { type: "number", description: "Доля готового блюда: 0.25 = четверть, 0.5 = половина, 1 = всё" },
       product: {
         type: "object",
         properties: {
@@ -191,15 +304,27 @@ export const logFoodTool: AgentTool = {
       if ("error" in logged) return { ok: false, error: logged.error };
       return { ok: true, data: logged.entry };
     }
-    if (typeof args.dishId === "string" && grams != null) {
+    if ((typeof args.dishId === "string" && args.dishId) || (typeof args.dishName === "string" && args.dishName.trim())) {
+      const found = await findSavedDish(ctx.userId, args);
+      if ("error" in found) return { ok: false, error: found.error };
+      const fraction = typeof args.fraction === "number" ? args.fraction : null;
+      const portionGrams =
+        grams != null
+          ? grams
+          : fraction != null && fraction > 0 && fraction <= 1
+            ? Math.round(found.dish.cookedWeightG * fraction)
+            : null;
+      if (portionGrams == null || !(portionGrams > 0)) {
+        return { ok: false, error: "Укажи граммы порции или долю готового блюда, например 0.25." };
+      }
       const logged = await logDishPortion(ctx.userId, {
         eatenOn: date,
         slot,
-        dishId: args.dishId,
-        grams,
+        dishId: found.dish.id,
+        grams: portionGrams,
       });
       if ("error" in logged) return { ok: false, error: logged.error };
-      return { ok: true, data: logged.entry };
+      return { ok: true, data: { dish: found.dish.name, grams: portionGrams, entry: logged.entry } };
     }
     if (args.product && typeof args.product === "object" && grams != null) {
       const p = args.product as Record<string, unknown>;
@@ -285,9 +410,11 @@ export const logWeightTool: AgentTool = {
 export const saveDishTool: AgentTool = {
   name: "save_dish",
   description: [
-    "Сохраняет своё блюдо из продуктов с граммами. КБЖУ на 100 г готового = сумма ингредиентов / вес готового.",
-    "cookedWeightG — вес готовой формы; если не передан, берётся сумма граммов ингредиентов.",
-    "productId — уже сохранённые продукты. Только после явного «да». Само в дневник не пишет.",
+    "Сохраняет своё блюдо, чтобы потом записывать порции. В дневник само не пишет.",
+    "Ингредиент: referenceId из справочника, productId своего продукта, query (если совпадение одно) или product с КБЖУ карточки Магнита/Ярче.",
+    "Количество: grams, либо amount + unit (g, piece, tbsp). Яйцо: unit piece, 1 шт = 55 г. Манка: unit tbsp, 1 ст. л. = 20 г.",
+    "cookedWeightG — вес готового. Если не передан, берётся сумма граммов ингредиентов.",
+    "Вызывай после явного «занеси» / «да», когда состав уже показан.",
   ].join(" "),
   parameters: {
     type: "object",
@@ -300,9 +427,27 @@ export const saveDishTool: AgentTool = {
           type: "object",
           properties: {
             productId: { type: "string" },
+            referenceId: { type: "string" },
+            query: { type: "string" },
             grams: { type: "number" },
+            amount: { type: "number" },
+            unit: { type: "string", enum: ["g", "piece", "tbsp"] },
+            product: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                kcalPer100: { type: "number" },
+                proteinPer100: { type: "number" },
+                fatPer100: { type: "number" },
+                carbsPer100: { type: "number" },
+                source: { type: "string", enum: ["manual", "magnit", "yarche"] },
+                externalId: { type: "string" },
+                packageGrams: { type: "number" },
+                url: { type: "string" },
+              },
+              required: ["name", "kcalPer100", "proteinPer100", "fatPer100", "carbsPer100"],
+            },
           },
-          required: ["productId", "grams"],
         },
       },
     },
@@ -310,14 +455,14 @@ export const saveDishTool: AgentTool = {
     additionalProperties: false,
   },
   execute: async (args, ctx) => {
-    const ingredients = Array.isArray(args.ingredients)
-      ? args.ingredients.flatMap((item) => {
-          if (!item || typeof item !== "object") return [];
-          const row = item as Record<string, unknown>;
-          if (typeof row.productId !== "string" || typeof row.grams !== "number") return [];
-          return [{ productId: row.productId, grams: row.grams }];
-        })
-      : [];
+    const rawLines = Array.isArray(args.ingredients) ? args.ingredients : [];
+    const ingredients: { productId: string; grams: number }[] = [];
+    for (const item of rawLines) {
+      if (!item || typeof item !== "object") continue;
+      const resolved = await resolveDishLine(ctx.userId, item as Record<string, unknown>);
+      if ("error" in resolved) return { ok: false, error: resolved.error };
+      ingredients.push(resolved);
+    }
     const saved = await saveDish(ctx.userId, {
       name: typeof args.name === "string" ? args.name : "",
       cookedWeightG: typeof args.cookedWeightG === "number" ? args.cookedWeightG : null,
@@ -325,6 +470,29 @@ export const saveDishTool: AgentTool = {
     });
     if ("error" in saved) return { ok: false, error: saved.error };
     return { ok: true, data: saved.dish };
+  },
+};
+
+export const listDishesTool: AgentTool = {
+  name: "list_dishes",
+  description:
+    "Сохранённые блюда: id, вес готового, КБЖУ всего и на 100 г. Ничего не записывает. Нужен, чтобы потом занести порцию по имени.",
+  parameters: { type: "object", properties: {}, additionalProperties: false },
+  execute: async (_args, ctx) => {
+    const listed = await listDishes(ctx.userId);
+    if ("error" in listed) return { ok: false, error: listed.error };
+    return {
+      ok: true,
+      data: listed.dishes.map((dish) => ({
+        id: dish.id,
+        name: dish.name,
+        cookedWeightG: dish.cookedWeightG,
+        total: dish.total,
+        per100: dish.per100,
+        quarterGrams: Math.round(dish.cookedWeightG / 4),
+        halfGrams: Math.round(dish.cookedWeightG / 2),
+      })),
+    };
   },
 };
 

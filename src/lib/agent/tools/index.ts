@@ -45,6 +45,12 @@ import {
 } from "@/lib/agent/tools/memory";
 import { webSearchTool } from "@/lib/agent/tools/web_search";
 import {
+  getNearbyFeedTool,
+  refreshNearbyFeedTool,
+  setNearbyCityTool,
+  setNearbyInterestsTool,
+} from "@/lib/agent/tools/nearby";
+import {
   getExpensesSummaryTool,
   getExpensesCategoryBreakdownTool,
   listExpenseTransactionsTool,
@@ -58,6 +64,7 @@ import {
   logFoodTool,
   logWeightTool,
   saveDishTool,
+  listDishesTool,
   saveNutritionSettingsTool,
   searchFoodProductsTool,
   suggestRemainingMealsTool,
@@ -115,9 +122,15 @@ export const AGENT_TOOLS: AgentTool[] = [
   deleteFoodLogTool,
   logWeightTool,
   saveDishTool,
+  listDishesTool,
   saveNutritionSettingsTool,
   // внешний контекст
   webSearchTool,
+  // события рядом
+  getNearbyFeedTool,
+  refreshNearbyFeedTool,
+  setNearbyCityTool,
+  setNearbyInterestsTool,
 ];
 
 const TOOLS_BY_NAME = new Map(AGENT_TOOLS.map((t) => [t.name, t]));
