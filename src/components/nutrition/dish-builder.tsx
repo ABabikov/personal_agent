@@ -105,7 +105,7 @@ export function DishBuilder({
   const [portionGrams, setPortionGrams] = useState<Record<string, string>>({});
 
   const queryTrim = query.trim();
-  const referenceHits = queryTrim.length >= 2 ? searchReferenceFoods(queryTrim, 8) : [];
+  const referenceHits = queryTrim.length >= 2 ? searchReferenceFoods(queryTrim, 24) : [];
   const localHits =
     queryTrim.length >= 2 ? products.filter((p) => foodQueryMatches(queryTrim, p.name)).slice(0, 6) : [];
 
@@ -370,7 +370,7 @@ function HitList({
   return (
     <div>
       <div className="mb-1 text-[11px] text-muted-foreground">{title}</div>
-      <ul className="space-y-1">
+      <ul className="max-h-60 space-y-1 overflow-y-auto pr-1">
         {items.map((item) => (
           <li key={item.key}>
             <button type="button" className="text-left text-xs underline-offset-2 hover:underline" onClick={item.onPick}>

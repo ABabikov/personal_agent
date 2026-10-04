@@ -15,6 +15,7 @@ import {
   softDeleteFoodLog,
 } from "@/lib/db/nutrition";
 import { searchMagnit } from "@/lib/features/nutrition/magnitCatalog";
+import { searchYarche } from "@/lib/features/nutrition/yarcheCatalog";
 import { REFERENCE_FOODS, searchReferenceFoods } from "@/lib/features/nutrition/referenceCatalog";
 import { isMealSlot, todayIso, type MealSlotId } from "@/lib/features/nutrition/slots";
 import { suggestRemainingMeals, type MealSuggestion } from "@/lib/features/nutrition/suggest";
@@ -69,7 +70,7 @@ export const getNutritionWeekTool: AgentTool = {
 export const searchFoodProductsTool: AgentTool = {
   name: "search_food_products",
   description:
-    "Ищет продукт: свои сохранённые, затем справочник (мясо, крупы, молочка — с КБЖУ на 100 г), затем Магнит, если на карточке есть КБЖУ. «Говядина тушёная» в справочнике — мясо, не банка. Тушенка находится по слову «тушенка». Ничего не записывает.",
+    "Ищет продукт: свои сохранённые, справочник (мясо, крупы, готовые блюда вроде том яма — с КБЖУ на 100 г), Магнит и Ярче, если на карточке есть КБЖУ. «Говядина тушёная» в справочнике — мясо, не банка. Тушенка находится по слову «тушенка». Ничего не записывает.",
   parameters: {
     type: "object",
     properties: {
@@ -81,18 +82,25 @@ export const searchFoodProductsTool: AgentTool = {
   execute: async (args, ctx) => {
     const query = typeof args.query === "string" ? args.query.trim() : "";
     if (query.length < 2) return { ok: false, error: "Запрос короче 2 символов." };
-    const [local, magnitAll] = await Promise.all([
+    const [local, magnitAll, yarche] = await Promise.all([
       searchLocalProducts(ctx.userId, query, 8),
       searchMagnit(query, 4),
+      searchYarche(query, 8),
     ]);
+    const yarcheHits = yarche.hits.filter((hit) => hit.kcalPer100 != null);
     return {
       ok: true,
       data: {
         local: "error" in local ? [] : local.products,
         localError: "error" in local ? local.error : null,
-        reference: searchReferenceFoods(query, 8),
+        reference: searchReferenceFoods(query, 24),
         magnit: magnitAll.filter((hit) => hit.kcalPer100 != null),
-        yarcheNote: "Каталог Ярче с сервера не открывается. Внеси КБЖУ с упаковки.",
+        yarche: yarcheHits,
+        yarcheNote: yarche.unavailable
+          ? "Каталог Ярче сейчас не ответил. Внеси КБЖУ с упаковки."
+          : yarche.hits.length > 0 && yarcheHits.length === 0
+            ? "В Ярче нашлись товары без КБЖУ на карточке."
+            : null,
       },
     };
   },

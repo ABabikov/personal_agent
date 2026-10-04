@@ -153,6 +153,14 @@ export const REFERENCE_FOODS: ReferenceFood[] = [
   { id: "chickpea-dry", name: "Нут сухой", aliases: [], kcalPer100: 364, proteinPer100: 19, fatPer100: 6, carbsPer100: 61, note: "сухой" },
   { id: "peas-canned", name: "Горошек консервированный", aliases: ["зеленый горошек", "горошек", "горошек зеленый", "горошка"], kcalPer100: 40, proteinPer100: 3.1, fatPer100: 0.2, carbsPer100: 6.5, note: "слитый" },
   { id: "beans-boiled", name: "Фасоль белая отварная", aliases: ["фасоль бобовая", "фасоль красная"], kcalPer100: 123, proteinPer100: 7.8, fatPer100: 0.5, carbsPer100: 21.5 },
+
+  { id: "tom-yum", name: "Том ям с креветками", aliases: ["том ям", "том-ям", "томьям", "том ям суп"], kcalPer100: 75, proteinPer100: 6.2, fatPer100: 2.4, carbsPer100: 7.1, note: "готовый суп, оценка" },
+  { id: "chicken-teriyaki", name: "Курица терияки", aliases: ["терияки", "куриное терияки"], kcalPer100: 151, proteinPer100: 18, fatPer100: 4.5, carbsPer100: 9, note: "готовое, оценка" },
+  { id: "chicken-cutlets", name: "Котлеты куриные", aliases: ["куриные котлеты", "котлета куриная"], kcalPer100: 190, proteinPer100: 16, fatPer100: 11, carbsPer100: 7, note: "жареные, оценка" },
+  { id: "borscht", name: "Борщ", aliases: ["борщ со свеклой"], kcalPer100: 49, proteinPer100: 2.2, fatPer100: 2.2, carbsPer100: 5.1, note: "готовый, оценка" },
+  { id: "plov", name: "Плов с говядиной", aliases: ["плов"], kcalPer100: 185, proteinPer100: 8, fatPer100: 7.5, carbsPer100: 21, note: "готовый, оценка" },
+  { id: "syrniki", name: "Сырники", aliases: ["сырники из творога"], kcalPer100: 183, proteinPer100: 18, fatPer100: 6, carbsPer100: 16, note: "жареные, оценка" },
+  { id: "cottage-casserole", name: "Запеканка творожная", aliases: ["творожная запеканка"], kcalPer100: 168, proteinPer100: 14, fatPer100: 6, carbsPer100: 15, note: "готовая, оценка" },
 ];
 
 function normalize(value: string): string {

@@ -29,6 +29,7 @@ import {
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import type { MagnitHit } from "@/lib/features/nutrition/magnitCatalog";
 import type { ReferenceFood } from "@/lib/features/nutrition/referenceCatalog";
+import type { YarcheHit } from "@/lib/features/nutrition/yarcheCatalog";
 import { MEAL_SLOTS, slotFromHour, slotLabel, type MealSlotId } from "@/lib/features/nutrition/slots";
 import { suggestRemainingMeals, type MealSuggestion } from "@/lib/features/nutrition/suggest";
 import type { WeekSummary } from "@/lib/features/nutrition/week";
@@ -72,12 +73,14 @@ export function NutritionPage() {
   const [localHits, setLocalHits] = useState<FoodProduct[]>([]);
   const [referenceHits, setReferenceHits] = useState<ReferenceFood[]>([]);
   const [magnitHits, setMagnitHits] = useState<MagnitSearchHit[]>([]);
+  const [yarcheHits, setYarcheHits] = useState<YarcheHit[]>([]);
   const [magnitNote, setMagnitNote] = useState<string | null>(null);
   const [yarcheNote, setYarcheNote] = useState<string | null>(null);
   const [picked, setPicked] = useState<
     | { kind: "product"; product: FoodProduct }
     | { kind: "reference"; item: ReferenceFood }
     | { kind: "magnit"; hit: MagnitSearchHit }
+    | { kind: "yarche"; hit: YarcheHit }
     | null
   >(null);
 
@@ -188,8 +191,9 @@ export function NutritionPage() {
         local?: FoodProduct[];
         reference?: ReferenceFood[];
         magnit?: MagnitSearchHit[];
+        yarche?: YarcheHit[];
         magnitNote?: string | null;
-        yarcheNote?: string;
+        yarcheNote?: string | null;
         error?: string;
       };
       if (!res.ok) {
@@ -198,6 +202,7 @@ export function NutritionPage() {
         setLocalHits(json.local ?? []);
         setReferenceHits(json.reference ?? []);
         setMagnitHits(json.magnit ?? []);
+        setYarcheHits(json.yarche ?? []);
         setMagnitNote(json.magnitNote ?? null);
         setYarcheNote(json.yarcheNote ?? null);
       }
@@ -230,11 +235,11 @@ export function NutritionPage() {
       }
       const hit = picked.hit;
       if (hit.kcalPer100 == null || hit.proteinPer100 == null || hit.fatPer100 == null || hit.carbsPer100 == null) {
-        return { error: "У карточки Магнита нет КБЖУ. Внеси цифры с упаковки." };
+        return { error: "У карточки нет КБЖУ. Внеси цифры с упаковки." };
       }
       const saved = await saveFoodProduct(userId, {
         name: hit.name,
-        source: "magnit",
+        source: picked.kind === "yarche" ? "yarche" : "magnit",
         externalId: hit.externalId,
         kcalPer100: hit.kcalPer100,
         proteinPer100: hit.proteinPer100,
@@ -505,6 +510,16 @@ export function NutritionPage() {
               }))}
             />
           ) : null}
+          {yarcheHits.length > 0 ? (
+            <HitList
+              title="Ярче"
+              items={yarcheHits.map((h) => ({
+                key: h.externalId,
+                label: `${h.name} · ${fmt(h.kcalPer100 ?? 0)} ккал/100`,
+                onPick: () => setPicked({ kind: "yarche", hit: h }),
+              }))}
+            />
+          ) : null}
           {magnitNote ? <p className="text-[11px] text-muted-foreground">{magnitNote}</p> : null}
           {yarcheNote ? <p className="text-[11px] text-muted-foreground">{yarcheNote}</p> : null}
           {picked ? (
@@ -513,8 +528,8 @@ export function NutritionPage() {
                 {picked.kind === "product"
                   ? picked.product.name
                   : picked.kind === "reference"
-                    ? picked.item.name
-                    : picked.hit.name}
+                  ? picked.item.name
+                  : picked.hit.name}
               </span>
               <Button type="button" size="sm" disabled={busy} onClick={() => void logPicked()}>
                 В приём
@@ -691,7 +706,7 @@ function HitList({
   return (
     <div>
       <div className="text-[11px] text-muted-foreground mb-1">{title}</div>
-      <ul className="space-y-1">
+      <ul className="max-h-60 space-y-1 overflow-y-auto pr-1">
         {items.map((item) => (
           <li key={item.key}>
             <button type="button" className="text-left text-xs underline-offset-2 hover:underline" onClick={item.onPick}>
