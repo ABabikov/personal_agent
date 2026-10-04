@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
+  Compass,
   Dumbbell,
   Waves,
   User,
@@ -44,6 +45,11 @@ const NAV_ITEMS = [
     href: "/meal-plan",
     label: "Еда",
     icon: UtensilsCrossed,
+  },
+  {
+    href: "/nearby",
+    label: "Рядом",
+    icon: Compass,
   },
   {
     href: "/chat",

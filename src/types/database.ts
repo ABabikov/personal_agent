@@ -29,6 +29,8 @@ export type ExpenseRuleMatchType = "merchant" | "mcc" | "bank_category" | "descr
 /** Откуда взялось правило: выбор пользователя, подсказка модели, вывод из истории. */
 export type ExpenseRuleOrigin = "manual" | "llm" | "learned";
 
+export type NearbyEventSource = "kudago" | "web";
+
 export type ToolCallDescriptor = {
   id: string;
   type: "function";
@@ -982,6 +984,82 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["weight_logs"]["Insert"]>;
+        Relationships: [];
+      };
+      nearby_settings: {
+        Row: {
+          user_id: string;
+          city_slug: string | null;
+          city_label: string | null;
+          horizon_days: number;
+          last_digest: string | null;
+          refreshed_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          city_slug?: string | null;
+          city_label?: string | null;
+          horizon_days?: number;
+          last_digest?: string | null;
+          refreshed_at?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["nearby_settings"]["Insert"]>;
+        Relationships: [];
+      };
+      nearby_interests: {
+        Row: {
+          id: string;
+          user_id: string;
+          label: string;
+          enabled: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          label: string;
+          enabled?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["nearby_interests"]["Insert"]>;
+        Relationships: [];
+      };
+      nearby_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          external_key: string;
+          source: NearbyEventSource;
+          title: string;
+          url: string;
+          starts_on: string | null;
+          place: string | null;
+          snippet: string | null;
+          why: string | null;
+          score: number;
+          interest_label: string | null;
+          hidden: boolean;
+          fetched_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          external_key: string;
+          source: NearbyEventSource;
+          title: string;
+          url: string;
+          starts_on?: string | null;
+          place?: string | null;
+          snippet?: string | null;
+          why?: string | null;
+          score?: number;
+          interest_label?: string | null;
+          hidden?: boolean;
+          fetched_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["nearby_events"]["Insert"]>;
         Relationships: [];
       };
     };

@@ -21,6 +21,7 @@
 | [Meal Plan & Shopping](meal-plan/) | Прототип UI + чат; полный MVP по ТЗ — в работе | `/meal-plan`, чат | Слоты приёмов, КБЖУ, дефицит ккал, база, план, список; **Jarvis** — `get_meal_plan_state` / `set_meal_plan_state` |
 | [Nutrition log](nutrition/) | Первый дневник | `/nutrition`, чат | Факт съеденного, остаток КБЖУ, продукты Магнита, свои блюда, утренний вес |
 | [Kids Schedule](kids-schedule/) | MVP + Max на Vercel | `/kids`, `@kidsaa_schedule_bot` | Расписание мальчика и девочки: уроки, кружки, ДЗ, оценки, два чата Max |
+| [Рядом](nearby/) | Phase 1 — код есть, миграцию надо применить | `/nearby`, чат | Лента событий в городе под интересы: ссылка и короткий разбор |
 
 > Новые фичи: скопировать `_template.md` в `docs/features/<feature-name>/`, добавить строку в таблицу выше и описать назначение.
 
