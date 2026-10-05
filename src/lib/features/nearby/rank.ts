@@ -54,13 +54,14 @@ export async function rankNearbyCandidates(input: {
       });
       const parsed = parseRank(completion.content ?? "");
       if (parsed) {
+        const picks = parsed.picks
+          .map((pick) => toScored(pick, tagged, input.today, input.until))
+          .filter((pick): pick is ScoredNearbyEvent => pick != null)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 12);
         return {
-          digest: clip(parsed.digest, 1800) || fallbackDigest(input.cityLabel, []),
-          picks: parsed.picks
-            .map((pick) => toScored(pick, tagged, input.today, input.until))
-            .filter((pick): pick is ScoredNearbyEvent => pick != null)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, 12),
+          digest: digestFromPicks(input.cityLabel, picks),
+          picks,
           rankedByModel: true,
         };
       }
@@ -71,7 +72,7 @@ export async function rankNearbyCandidates(input: {
 
   const picks = heuristicPicks(tagged, input.interests);
   return {
-    digest: fallbackDigest(input.cityLabel, picks),
+    digest: digestFromPicks(input.cityLabel, picks),
     picks,
     rankedByModel: false,
   };
@@ -181,15 +182,40 @@ function heuristicPicks(
     }));
 }
 
-function fallbackDigest(cityLabel: string, picks: ScoredNearbyEvent[]): string {
+const MONTHS = [
+  "января",
+  "февраля",
+  "марта",
+  "апреля",
+  "мая",
+  "июня",
+  "июля",
+  "августа",
+  "сентября",
+  "октября",
+  "ноября",
+  "декабря",
+];
+
+function digestFromPicks(cityLabel: string, picks: ScoredNearbyEvent[]): string {
   if (picks.length === 0) {
-    return `В ${cityLabel} на ближайшие недели по твоим интересам ничего подходящего не нашлось.`;
+    return `В ${cityLabel} на ближайшие недели не нашлось отдельных событий, только страницы календарей. Обнови ленту ещё раз чуть позже.`;
   }
-  const titles = picks
-    .slice(0, 3)
-    .map((pick) => pick.candidate.title)
-    .join("; ");
-  return `Разобрал без модели и оставил прямые совпадения: ${titles}.`;
+  return picks
+    .map((pick) => {
+      const place = pick.place ? `, ${pick.place}` : "";
+      return `${formatDay(pick.startsOn)}. ${pick.title}${place}. ${pick.why}`;
+    })
+    .join("\n\n");
+}
+
+function formatDay(iso: string | null): string {
+  if (!iso) return "Дата не указана";
+  const [, month, day] = iso.split("-");
+  const monthName = MONTHS[Number(month) - 1];
+  const dayNum = Number(day);
+  if (!monthName || !dayNum) return iso;
+  return `${dayNum} ${monthName}`;
 }
 
 function clip(value: string, max: number): string {
