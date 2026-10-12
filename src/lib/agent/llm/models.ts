@@ -83,8 +83,20 @@ function defaultPrimaryLlm(): string {
 
 function defaultLlmFallbacks(): string[] {
   return getLlmProvider() === "dashscope"
-    ? ["qwen-turbo", "qwen-max"]
+    ? ["qwen3.7-flash", "qwen-flash"]
     : ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"];
+}
+
+/** qwen-turbo снят 10 октября 2026 и отвечает 404. Подменяем на живую модель. */
+const RETIRED_LLM_MODELS: Record<string, string> = {
+  "qwen-turbo": "qwen3.7-flash",
+  "qwen-turbo-latest": "qwen3.7-flash",
+  "qwen-turbo-2025-04-28": "qwen3.7-flash",
+  "qwen-turbo-2024-11-01": "qwen3.7-flash",
+};
+
+function rewriteRetiredModel(model: string): string {
+  return RETIRED_LLM_MODELS[model.trim()] ?? model.trim();
 }
 
 function defaultEmbeddingModel(): string {
@@ -189,8 +201,9 @@ export function pickMaxTokens(model: string, requested: number): number {
 
 /** Полная цепочка моделей (primary + фоллбеки без дублей) */
 export function buildLlmChain(primary?: string | null): string[] {
-  const p = primary?.trim() || PRIMARY_LLM_MODEL;
-  return [p, ...LLM_FALLBACKS.filter((m) => m !== p)];
+  const p = rewriteRetiredModel(primary?.trim() || PRIMARY_LLM_MODEL);
+  const rest = LLM_FALLBACKS.map(rewriteRetiredModel).filter((m) => m !== p);
+  return [p, ...rest.filter((m, i) => rest.indexOf(m) === i)];
 }
 
 export function buildEmbeddingChain(primary?: string | null): string[] {
