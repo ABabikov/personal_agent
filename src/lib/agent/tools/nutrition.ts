@@ -259,7 +259,8 @@ export const searchFoodProductsTool: AgentTool = {
 export const logFoodTool: AgentTool = {
   name: "log_food",
   description: [
-    "Записывает съеденное в дневник. Только после явного «да».",
+    "Записывает одну позицию в дневник. После «да» / «записывай» / «подтверждаю» / «внеси» вызывай сразу, повторно не спрашивай.",
+    "Несколько позиций за раз — log_foods, не пачка отдельных вопросов.",
     "Варианты одной записи: productId+grams (свой продукт), dishId или dishName + grams или fraction (своё блюдо),",
     "product{name,kcalPer100,proteinPer100,fatPer100,carbsPer100,grams,source,externalId} — сохранить карточку и записать порцию,",
     "quick{label,kcal,proteinG,fatG,carbsG} — только калории, без продукта.",
@@ -275,6 +276,7 @@ export const logFoodTool: AgentTool = {
       dishId: { type: "string" },
       dishName: { type: "string", description: "Название сохранённого блюда, если id неизвестен" },
       grams: { type: "number" },
+      pieces: { type: "number", description: "Штуки, если в справочнике есть pieceGrams: банан 120 г, яблоко 180 г, апельсин 150 г" },
       fraction: { type: "number", description: "Доля готового блюда: 0.25 = четверть, 0.5 = половина, 1 = всё" },
       product: {
         type: "object",
@@ -309,7 +311,12 @@ export const logFoodTool: AgentTool = {
   execute: async (args, ctx) => {
     const slot = slotOr(args.slot, "snack");
     const date = dateOrToday(args.date);
-    const grams = typeof args.grams === "number" ? args.grams : null;
+    const pieces = typeof args.pieces === "number" ? args.pieces : null;
+    let grams = typeof args.grams === "number" ? args.grams : null;
+    if (grams == null && pieces != null && pieces > 0 && typeof args.referenceId === "string") {
+      const food = REFERENCE_FOODS.find((item) => item.id === args.referenceId);
+      if (food?.pieceGrams) grams = Math.round(food.pieceGrams * pieces);
+    }
 
     if (typeof args.referenceId === "string" && grams != null) {
       const food = REFERENCE_FOODS.find((item) => item.id === args.referenceId);
@@ -405,6 +412,67 @@ export const logFoodTool: AgentTool = {
       return { ok: true, data: logged.entry };
     }
     return { ok: false, error: "Укажи productId, referenceId, dishId, product или quick, и граммы где нужно." };
+  },
+};
+
+export const logFoodsTool: AgentTool = {
+  name: "log_foods",
+  description: [
+    "Записывает сразу несколько позиций дневника за день. Один вызов на весь список.",
+    "Вызывай сразу, как только человек сказал «да», «записывай», «подтверждаю» или «внеси».",
+    "Не проси подтвердить ещё раз и не проси заново продиктовать меню.",
+    "Каждая позиция — как у log_food: slot, referenceId+grams или pieces, dishName+fraction, product или quick.",
+    "Вес салата — вес готовой тарелки. «Салат из пекинской капусты … 250 г» = referenceId salad-napa-light-mayo и grams 250, не каждый овощ по 250 г.",
+    "Чего не хватает (нет состава десерта) — не клади в entries, в ответе одной строкой скажи, что не записал. Остальное запиши.",
+  ].join(" "),
+  parameters: {
+    type: "object",
+    properties: {
+      date: { type: "string" },
+      entries: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            date: { type: "string" },
+            slot: { type: "string", enum: ["breakfast", "lunch", "dinner", "snack"] },
+            productId: { type: "string" },
+            referenceId: { type: "string" },
+            dishId: { type: "string" },
+            dishName: { type: "string" },
+            grams: { type: "number" },
+            pieces: { type: "number" },
+            fraction: { type: "number" },
+            product: { type: "object" },
+            quick: { type: "object" },
+          },
+          required: ["slot"],
+        },
+      },
+    },
+    required: ["entries"],
+    additionalProperties: false,
+  },
+  execute: async (args, ctx) => {
+    const rows = Array.isArray(args.entries) ? args.entries : [];
+    if (rows.length === 0) return { ok: false, error: "Список entries пуст." };
+    const date = dateOrToday(args.date);
+    const saved: unknown[] = [];
+    const failed: { index: number; error: string }[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || typeof row !== "object") {
+        failed.push({ index: i, error: "Пустая позиция." });
+        continue;
+      }
+      const result = await logFoodTool.execute({ date, ...(row as Record<string, unknown>) }, ctx);
+      if (result.ok) saved.push(result.data);
+      else failed.push({ index: i, error: result.error });
+    }
+    if (saved.length === 0) {
+      return { ok: false, error: failed.map((item) => item.error).join("; ") };
+    }
+    return { ok: true, data: { saved: saved.length, failed } };
   },
 };
 

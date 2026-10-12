@@ -161,15 +161,28 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
 
     // Иначе — финальный текстовый ответ.
     const final = completion.content ?? "";
+    if (/请严格遵守|只能使用给定的工具|在返回的函数名称/.test(final) && i < maxIterations - 1) {
+      messages.push({ role: "assistant", content: final });
+      messages.push({
+        role: "user",
+        content:
+          "Прошлый текст — сбой, пользователю его не показывай. Ответь по-русски. Если он уже просил записать еду, сразу вызови log_foods по всему списку из его сообщений, без нового вопроса.",
+      });
+      steps.push(step);
+      continue;
+    }
+    const visible = /请严格遵守|只能使用给定的工具/.test(final)
+      ? "Не смог записать за этот ход. Напиши ещё раз «записывай» — список из переписки на месте."
+      : final;
     await saveAssistantMessage({
       userId: input.userId,
       conversationId: input.conversationId,
-      content: final,
+      content: visible,
     });
     steps.push(step);
     return {
       conversationId: input.conversationId,
-      finalAnswer: final,
+      finalAnswer: visible,
       steps,
       finalModel: completion.modelUsed,
       usedFallback: completion.modelUsed !== PRIMARY_LLM_MODEL,

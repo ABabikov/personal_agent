@@ -5,11 +5,17 @@
 
 export type LlmProvider = "openrouter" | "dashscope";
 
-/** Явно: LLM_PROVIDER=qwen|dashscope|openrouter; иначе авто по ключу/URL. */
+/**
+ * Явно: LLM_PROVIDER=qwen|dashscope|openrouter.
+ * Ключ DashScope сам по себе чат не переключает: он нужен диктовке.
+ * На Qwen уходим только по LLM_PROVIDER или если ключа OpenRouter нет.
+ */
 export function getLlmProvider(): LlmProvider {
   const explicit = process.env.LLM_PROVIDER?.trim().toLowerCase();
   if (explicit === "qwen" || explicit === "dashscope") return "dashscope";
   if (explicit === "openrouter") return "openrouter";
+
+  if (process.env.OPENROUTER_API_KEY?.trim()) return "openrouter";
 
   if (process.env.DASHSCOPE_API_KEY?.trim() || process.env.QWEN_API_KEY?.trim()) {
     return "dashscope";
@@ -24,14 +30,18 @@ const DASHSCOPE_INTL_BASE =
   "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 const OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1";
 
-/** Base URL без завершающего слэша (…/v1). */
+/** Base URL без завершающего слэша (…/v1). Хост совпадает с провайдером чата. */
 export function getLlmBaseUrl(): string {
-  const override =
-    process.env.LLM_BASE_URL?.trim() || process.env.OPENROUTER_BASE_URL?.trim();
+  if (getLlmProvider() === "openrouter") {
+    const openrouter = process.env.OPENROUTER_BASE_URL?.trim() || "";
+    if (openrouter && !/dashscope|aliyuncs|qwen/i.test(openrouter)) {
+      return openrouter.replace(/\/+$/, "");
+    }
+    return OPENROUTER_DEFAULT_BASE;
+  }
+  const override = process.env.LLM_BASE_URL?.trim();
   if (override) return override.replace(/\/+$/, "");
-  return getLlmProvider() === "dashscope"
-    ? DASHSCOPE_INTL_BASE
-    : OPENROUTER_DEFAULT_BASE;
+  return DASHSCOPE_INTL_BASE;
 }
 
 /** @deprecated используй getLlmBaseUrl() — оставлен для старых импортов. */
