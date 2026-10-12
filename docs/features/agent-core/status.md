@@ -30,6 +30,7 @@
 | PG-функция `match_chat_messages` (RPC через pgvector index)              | Not Started | -          |
 | Авто-извлечение фактов из переписки                                       | Not Started | -          |
 | История чатов в UI (переключение между conversation_id)                  | Done        | `ChatConversationPicker` |
+| Диктовка в чат: микрофон → qwen3-asr-flash → текст в поле, запись после «да» | Done   | 2026-10-12 |
 
 ## Известные ограничения
 

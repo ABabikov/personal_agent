@@ -10,11 +10,10 @@ const TAVILY_URL = "https://api.tavily.com/search";
 export const webSearchTool: AgentTool = {
   name: "web_search",
   description: [
-    "Поиск актуальной информации в интернете (краткие выдержки из страниц).",
-    "Используй для вопросов, где важны свежие данные вне приложения: медицинские рекомендации общего характера,",
-    "новости, методики тренировок из открытых источников, нормативы. НЕ подставляй результаты поиска вместо",
-    "данных из БД приложения — для своих тренировок и профиля всегда вызывай соответствующие тулы.",
-    "Запрос формулируй коротко и по-русски или по-английски — как лучше для темы.",
+    "Поиск в интернете: техника, состав блюда которого нет в справочнике, общие нормы.",
+    "Не заменяет тулы приложения: свои тренировки, профиль, дневник и траты отсюда не бери.",
+    "КБЖУ из сниппета — оценка, в дневник не пиши, пока человек не подтвердил цифры.",
+    "Запрос короткий, по-русски или по-английски — как лучше ищется тема.",
   ].join(" "),
   parameters: {
     type: "object",
@@ -61,8 +60,8 @@ export const webSearchTool: AgentTool = {
           api_key: apiKey,
           query,
           max_results: maxResults,
-          search_depth: "basic",
-          include_answer: false,
+          search_depth: "advanced",
+          include_answer: true,
         }),
       });
 
@@ -91,13 +90,15 @@ export const webSearchTool: AgentTool = {
               : "",
       }));
 
+      const answer = typeof raw.answer === "string" ? raw.answer.slice(0, 1200) : "";
       return {
         ok: true,
         data: {
           query,
+          answer: answer || null,
           count: simplified.length,
           results: simplified,
-          hint: "Перескажи пользователю своими словами и при необходимости дай ссылки из поля url.",
+          hint: "answer — черновая выжимка поиска, проверь её по results. Перескажи своими словами и дай url.",
         },
       };
     } catch (e) {

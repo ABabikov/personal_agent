@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { MessageSquare, Send, Plus, X } from "lucide-react";
+import { DictationButton } from "@/components/chat/dictation-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
@@ -312,12 +313,19 @@ export function GlobalChat() {
             </div>
 
             <div className="border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              <div className="flex gap-2">
+              <div className="flex items-start gap-2">
+                <DictationButton
+                  disabled={pending || !userId || historyLoading || !conversationId}
+                  onText={(text) =>
+                    setInput((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
+                  }
+                />
                 <Input
+                  className="flex-1"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}
-                  placeholder="Вопрос про эту страницу или тренировки…"
+                  placeholder="Вопрос, еда или подходы — можно надиктовать"
                   disabled={pending || !userId || historyLoading || !conversationId}
                 />
                 <Button onClick={send} disabled={!canSend}>

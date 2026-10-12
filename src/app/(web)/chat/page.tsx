@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare, Send, Plus } from "lucide-react";
+import { DictationButton } from "@/components/chat/dictation-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -279,12 +280,19 @@ export default function ChatPage() {
         )}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-start gap-2">
+        <DictationButton
+          disabled={pending || !userId || historyLoading || !conversationId}
+          onText={(text) =>
+            setInput((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
+          }
+        />
         <Input
+          className="flex-1"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKey}
-          placeholder="Спроси про тренировки, прогресс, питание…"
+          placeholder="Спроси или надиктуй еду и подходы…"
           disabled={pending || !userId || historyLoading || !conversationId}
         />
         <Button onClick={send} disabled={!canSend}>
