@@ -22,6 +22,15 @@ function parseBodyWeight(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Чат пишет с сервера и уже знает userId. Форма в браузере по-прежнему берёт его сама. */
+async function resolveSaveUserId(
+  explicit?: string
+): Promise<{ userId: string } | { error: string }> {
+  const id = explicit?.trim();
+  if (id) return { userId: id };
+  return getWorkoutUserId();
+}
+
 export async function saveGymWorkoutToSupabase(params: {
   date: string;
   bodyWeightStr: string;
@@ -31,8 +40,10 @@ export async function saveGymWorkoutToSupabase(params: {
   profileWeightKg?: number | null;
   /** Опциональная ручная длительность тренировки в минутах. */
   durationMinOverride?: number | null;
+  /** Из чата (сервер). Без него — пользователь браузера. */
+  userId?: string;
 }): Promise<{ ok: true } | { error: string }> {
-  const user = await getWorkoutUserId();
+  const user = await resolveSaveUserId(params.userId);
   if ("error" in user) return user;
 
   const rows = params.exercises
@@ -111,8 +122,10 @@ export async function saveSwimWorkoutToSupabase(params: {
   date: string;
   series: SwimSeriesForm[];
   notes: string;
+  /** Из чата (сервер). Без него — пользователь браузера. */
+  userId?: string;
 }): Promise<{ ok: true; caloriesEstimated: number | null } | { error: string }> {
-  const user = await getWorkoutUserId();
+  const user = await resolveSaveUserId(params.userId);
   if ("error" in user) return user;
 
   const rows = params.series

@@ -124,6 +124,7 @@ export const saveGymWorkoutTool: AgentTool = {
       notes,
       profileWeightKg,
       durationMinOverride: duration,
+      userId: ctx.userId,
     });
     if ("error" in r) return { ok: false, error: r.error };
     return { ok: true, data: { saved: true, date, exercises: exercises.length } };
@@ -164,7 +165,6 @@ export const saveSwimWorkoutTool: AgentTool = {
     additionalProperties: false,
   },
   execute: async (args, ctx) => {
-    void ctx;
     const date = typeof args.date === "string" && args.date ? args.date : todayLocal();
     const notes = typeof args.notes === "string" ? args.notes : "";
 
@@ -184,7 +184,7 @@ export const saveSwimWorkoutTool: AgentTool = {
       return { ok: false, error: "Нужна хотя бы одна серия с дистанцией > 0." };
     }
 
-    const r = await saveSwimWorkoutToSupabase({ date, series, notes });
+    const r = await saveSwimWorkoutToSupabase({ date, series, notes, userId: ctx.userId });
     if ("error" in r) return { ok: false, error: r.error };
     return {
       ok: true,
