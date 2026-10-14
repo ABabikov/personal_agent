@@ -49,7 +49,8 @@
 
 - Цепочка (дефолт `models.ts:35-42`): `[OPENROUTER_LLM_MODEL ?? 'anthropic/claude-sonnet-4', 'openai/gpt-4o-mini', 'google/gemini-2.0-flash-001', 'deepseek/deepseek-chat']`. Переопределяется `OPENROUTER_LLM_FALLBACKS`.
 - Для каждой модели: один HTTP-POST на `${OPENROUTER_BASE_URL}/chat/completions`.
-- **Retryable**: HTTP 402, 404, 429, 503 → переходим к следующей модели и записываем попытку в `attempts`.
+- **Retryable**: HTTP 402, 403, 404, 429, 503 → переходим к следующей модели и записываем попытку в `attempts`. 403 `FreeTierOnly` — кончилась бесплатная квота Qwen.
+- Если у второго провайдера есть ключ (OpenRouter ↔ DashScope), после цепочки основного пробуем его встроенные модели. Имена из env текущего провайдера на чужой хост не отправляются.
 - Любой `throw` (timeout, network) → тоже к следующей.
 - Если модель вернула HTTP 200, но `choices[0].message` пустой и без `tool_calls` → считаем некорректным, идём дальше.
 - Падаем (`throw`) только если упали ВСЕ.

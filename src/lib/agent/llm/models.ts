@@ -30,9 +30,9 @@ const DASHSCOPE_INTL_BASE =
   "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 const OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1";
 
-/** Base URL без завершающего слэша (…/v1). Хост совпадает с провайдером чата. */
-export function getLlmBaseUrl(): string {
-  if (getLlmProvider() === "openrouter") {
+/** Base URL без завершающего слэша (…/v1). */
+export function getLlmBaseUrl(provider: LlmProvider = getLlmProvider()): string {
+  if (provider === "openrouter") {
     const openrouter = process.env.OPENROUTER_BASE_URL?.trim() || "";
     if (openrouter && !/dashscope|aliyuncs|qwen/i.test(openrouter)) {
       return openrouter.replace(/\/+$/, "");
@@ -40,15 +40,28 @@ export function getLlmBaseUrl(): string {
     return OPENROUTER_DEFAULT_BASE;
   }
   const override = process.env.LLM_BASE_URL?.trim();
-  if (override) return override.replace(/\/+$/, "");
+  if (
+    override &&
+    (provider === getLlmProvider() || /dashscope|aliyuncs|qwen/i.test(override))
+  ) {
+    return override.replace(/\/+$/, "");
+  }
   return DASHSCOPE_INTL_BASE;
 }
 
 /** @deprecated используй getLlmBaseUrl() — оставлен для старых импортов. */
 export const OPENROUTER_BASE_URL = getLlmBaseUrl();
 
-export function getApiKey(): string {
-  const provider = getLlmProvider();
+export function hasProviderApiKey(provider: LlmProvider): boolean {
+  if (provider === "dashscope") {
+    return Boolean(
+      process.env.QWEN_API_KEY?.trim() || process.env.DASHSCOPE_API_KEY?.trim()
+    );
+  }
+  return Boolean(process.env.OPENROUTER_API_KEY?.trim());
+}
+
+export function getApiKey(provider: LlmProvider = getLlmProvider()): string {
   if (provider === "dashscope") {
     const key =
       process.env.QWEN_API_KEY?.trim() || process.env.DASHSCOPE_API_KEY?.trim();
@@ -83,17 +96,45 @@ function defaultPrimaryLlm(): string {
 
 function defaultLlmFallbacks(): string[] {
   return getLlmProvider() === "dashscope"
-    ? ["qwen3.7-flash", "qwen-flash"]
+    ? ["qwen-flash", "qwen-max"]
     : ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"];
 }
 
-/** qwen-turbo снят 10 октября 2026 и отвечает 404. Подменяем на живую модель. */
+/**
+ * qwen-turbo снят 10 октября 2026 (404). qwen3.7-flash — бесплатный тир DashScope:
+ * после исчерпания квоты отвечает 403 FreeTierOnly и роняет весь чат.
+ * Подмена — на платную qwen-flash.
+ */
 const RETIRED_LLM_MODELS: Record<string, string> = {
-  "qwen-turbo": "qwen3.7-flash",
-  "qwen-turbo-latest": "qwen3.7-flash",
-  "qwen-turbo-2025-04-28": "qwen3.7-flash",
-  "qwen-turbo-2024-11-01": "qwen3.7-flash",
+  "qwen-turbo": "qwen-flash",
+  "qwen-turbo-latest": "qwen-flash",
+  "qwen-turbo-2025-04-28": "qwen-flash",
+  "qwen-turbo-2024-11-01": "qwen-flash",
+  "qwen3.7-flash": "qwen-flash",
 };
+
+const OPENROUTER_BUILTIN_CHAIN = [
+  "anthropic/claude-sonnet-4",
+  "openai/gpt-4o-mini",
+  "google/gemini-2.0-flash-001",
+  "deepseek/deepseek-chat",
+];
+
+const DASHSCOPE_BUILTIN_CHAIN = ["qwen-plus", "qwen-flash", "qwen-max"];
+
+/** Цепочка другого провайдера, без моделей из env текущего. */
+export function builtinLlmChain(provider: LlmProvider): string[] {
+  return provider === "dashscope"
+    ? [...DASHSCOPE_BUILTIN_CHAIN]
+    : [...OPENROUTER_BUILTIN_CHAIN];
+}
+
+/** Основной провайдер, затем второй — если у него есть ключ. */
+export function llmProvidersToTry(): LlmProvider[] {
+  const primary = getLlmProvider();
+  const alt: LlmProvider = primary === "dashscope" ? "openrouter" : "dashscope";
+  return hasProviderApiKey(alt) ? [primary, alt] : [primary];
+}
 
 function rewriteRetiredModel(model: string): string {
   return RETIRED_LLM_MODELS[model.trim()] ?? model.trim();
@@ -186,8 +227,8 @@ export const PRIMARY_EMBEDDING_MODEL =
 
 export const EMBEDDING_DIMENSIONS = 1536;
 
-/** HTTP-статусы, при которых уходим на следующую модель и НЕ падаем. */
-export const RETRYABLE_STATUSES = new Set([402, 404, 429, 503]);
+/** HTTP-статусы, при которых уходим на следующую модель и НЕ падаем. 403 — квота/free tier. */
+export const RETRYABLE_STATUSES = new Set([402, 403, 404, 429, 503]);
 
 /** Потолок max_tokens на запрос (учитывает OPENROUTER_MAX_COMPLETION_TOKENS и суффикс :free). */
 export function pickMaxTokens(model: string, requested: number): number {
@@ -200,7 +241,11 @@ export function pickMaxTokens(model: string, requested: number): number {
 }
 
 /** Полная цепочка моделей (primary + фоллбеки без дублей) */
-export function buildLlmChain(primary?: string | null): string[] {
+export function buildLlmChain(
+  primary?: string | null,
+  provider: LlmProvider = getLlmProvider()
+): string[] {
+  if (provider !== getLlmProvider()) return builtinLlmChain(provider);
   const p = rewriteRetiredModel(primary?.trim() || PRIMARY_LLM_MODEL);
   const rest = LLM_FALLBACKS.map(rewriteRetiredModel).filter((m) => m !== p);
   return [p, ...rest.filter((m, i) => rest.indexOf(m) === i)];
