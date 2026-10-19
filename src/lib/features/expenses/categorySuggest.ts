@@ -288,6 +288,9 @@ function categoryLabelIn(index: SuggestionIndex, categoryId: string): string {
   return parent ? `${parent.name} / ${cat.name}` : cat.name;
 }
 
+/** Имена, которые опасно брать из подкатегорий (есть и у родителя, и у детей). */
+const AMBIGUOUS_CATEGORY_NAMES = new Set(["прочее", "другое", "остальное"]);
+
 /** Подбирает существующую категорию пользователя по названию-кандидату из справочника MCC. */
 function resolveByName(
   index: SuggestionIndex,
@@ -303,9 +306,13 @@ function resolveByName(
     const matching = index.categories.filter(
       (c) => c.kind === kind && c.name.trim().toLowerCase() === want
     );
-    // Только верхний уровень: иначе «Прочее» цепляется к «Здоровье / прочее».
+    // Верхний уровень предпочтительнее; иначе «Прочее» цепляется к «Здоровье / прочее».
     const parent = matching.find((c) => c.parent_id == null);
     if (parent) return parent;
+    // Однозначная подкатегория («автомобиль», «каталка») — ок.
+    if (matching.length === 1 && !AMBIGUOUS_CATEGORY_NAMES.has(want)) {
+      return matching[0];
+    }
   }
   return null;
 }
@@ -318,11 +325,13 @@ const MERCHANT_CATEGORY_HINTS: { pattern: RegExp; categories: string[] }[] = [
   { pattern: /^(krasnoe|красное)/i, categories: ["Алкоголь"] },
   { pattern: /^(yarche|ярче|magnit|магнит|pyaterochka|пятерочка|dobryanka|добрянка|bystronom|быстроном|mariya|мария|svetofor|светофор|samokat|самокат|lavka|lavkarit)/i, categories: ["Продукты"] },
   { pattern: /^(ozon)/i, categories: ["Прочее", "Продукты"] },
-  { pattern: /^(dodo|додо|wok|puzj|пуз|vetnam|вьетнам|shokolad|шоколад|pelmen|пельмен|grelka|грелка|karavan|караван)/i, categories: ["Еда вне дома"] },
-  { pattern: /^(gazpromneft|gpnbonus|azs|азс|rnazk|volga\s*motors)/i, categories: ["Транспорт"] },
+  { pattern: /^(dodo|додо)/i, categories: ["обед", "Еда вне дома"] },
+  { pattern: /^(wok|puzj|пуз|vetnam|вьетнам|shokolad|шоколад|pelmen|пельмен|grelka|грелка|karavan|караван)/i, categories: ["Еда вне дома"] },
+  // NAM PO PUTI — СБП-имя той же сети АЗС; цель — «автомобиль», не верхний Транспорт
+  { pattern: /^(gazpromneft|gpnbonus|azs|азс|rnazk|volga\s*motors)/i, categories: ["автомобиль", "Транспорт"] },
   { pattern: /^(sibtekhservis|сибтех)/i, categories: ["Транспорт"] },
   { pattern: /^(yandex\s+go|yandex\s+taxi|taxi)/i, categories: ["Транспорт"] },
-  { pattern: /^(yandex\s+360|yandex\s+plus)/i, categories: ["Прочее"] },
+  { pattern: /^(yandex\s+360|yandex\s+plus)/i, categories: ["коммуналка", "Дом"] },
   { pattern: /^(yandex\s+lavka|yandex\s+dostavka)/i, categories: ["Продукты"] },
   { pattern: /^(mts|мтс|rostelecom|ростелеком|pay\.mts)/i, categories: ["Прочее"] },
   { pattern: /^(vetruda|ветруда|sportmaster|спортмастер|academic\s*fitnes|heroleague)/i, categories: ["Спорт"] },
@@ -332,11 +341,14 @@ const MERCHANT_CATEGORY_HINTS: { pattern: RegExp; categories: string[] }[] = [
   { pattern: /^(aeroflot|аэрофлот)/i, categories: ["Путешествия"] },
   { pattern: /^(epgu|фнс|ekc)/i, categories: ["Прочее"] },
   { pattern: /^(finamx)|firstbyte/i, categories: ["Прочее"] },
-  { pattern: /^(detsk|детский\s*мир|rich\s*femili)/i, categories: ["Семья и дети"] },
+  { pattern: /^(detsk|детский\s*мир|rich\s*femili|chitaj|читай|biblioteka|библиотек)/i, categories: ["Семья и дети"] },
+  { pattern: /^(khvoya|хвоя)/i, categories: ["Развлечения"] },
+  { pattern: /^(avito)/i, categories: ["Развлечения"] },
   { pattern: /ppkd|olimpiya|olympic/i, categories: ["Развлечения", "Путешествия"] },
   { pattern: /^(cdek|сдэк|сдек)/i, categories: ["Прочее"] },
   { pattern: /platipomiru|accountbroker|32links|flippy/i, categories: ["Прочее"] },
   { pattern: /^(modnyj|модный|funday|supermag|i\s+modnyj)/i, categories: ["Одежда"] },
+  { pattern: /wildberr|\bwb\b/i, categories: ["Одежда"] },
   { pattern: /^(зарплата)/i, categories: ["Зарплата"] },
   { pattern: /парк|parkovk|gorpark/i, categories: ["Транспорт"] },
   { pattern: /^(vsk|сао|страхов)/i, categories: ["Прочее"] },

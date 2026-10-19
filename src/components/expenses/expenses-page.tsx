@@ -723,7 +723,9 @@ export function ExpensesPage() {
                     ? "text-emerald-500"
                     : t.kind === "expense"
                       ? "text-red-500"
-                      : "text-muted-foreground";
+                      : t.kind === "transfer"
+                        ? "text-sky-600 dark:text-sky-400"
+                        : "text-muted-foreground";
                 const timeStr = new Date(t.occurred_at).toLocaleTimeString("ru", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -935,7 +937,9 @@ export function ExpensesPage() {
                       ? "text-emerald-600 dark:text-emerald-400"
                       : t.kind === "expense"
                         ? "text-red-500"
-                        : "text-muted-foreground";
+                        : t.kind === "transfer"
+                          ? "text-sky-600 dark:text-sky-400"
+                          : "text-muted-foreground";
                   const day = new Date(t.occurred_at).toLocaleDateString("ru", {
                     day: "numeric",
                     month: "short",

@@ -26,20 +26,35 @@ export function groupExpenseTransactionsByDate(
   return map;
 }
 
+export type DayMoneyTone = "expense" | "income" | "transfer" | null;
+
 /** Краткая сводка по дню для индикатора в ячейке календаря. */
 export function dayMoneySummary(transactions: ExpenseTransactionRow[]): {
   hasAny: boolean;
   /** Положительное — перевес расходов над доходами за день */
   netOutflow: number;
+  /** Цвет точки: серый только у дней без операций (tone=null) */
+  tone: DayMoneyTone;
 } {
   let expense = 0;
   let income = 0;
+  let hasTransfer = false;
   for (const t of transactions) {
     if (t.kind === "expense") expense += t.amount;
     else if (t.kind === "income") income += t.amount;
+    else if (t.kind === "transfer") hasTransfer = true;
+  }
+  const netOutflow = expense - income;
+  let tone: DayMoneyTone = null;
+  if (transactions.length > 0) {
+    if (netOutflow > 0) tone = "expense";
+    else if (netOutflow < 0) tone = "income";
+    else if (hasTransfer) tone = "transfer";
+    else tone = "income"; // баланс доходов/расходов без переводов — как «не пустой»
   }
   return {
     hasAny: transactions.length > 0,
-    netOutflow: expense - income,
+    netOutflow,
+    tone,
   };
 }

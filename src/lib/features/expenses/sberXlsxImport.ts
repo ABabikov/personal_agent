@@ -162,11 +162,14 @@ export function extractMerchantAndMcc(description: string | null): {
 
   let merchant: string | null = null;
 
-  const place = text.match(/место совершения операции:\s*([^,]+)/i);
+  // До `, MCC:` — иначе «RU/MOSKOVSKAJA OBLAST, G.O/WB WILDBERRIES» обрезается на запятой.
+  const place = text.match(
+    /место совершения операции:\s*(.+?)(?=\s*,\s*MCC\b|\s*$)/i
+  );
   if (place) {
     const segments = place[1]
       .split("/")
-      .map((s) => s.trim())
+      .map((s) => s.trim().replace(/^,+|,+$/g, "").trim())
       .filter((s) => s.length > 0);
     merchant = segments[segments.length - 1] ?? null;
   }

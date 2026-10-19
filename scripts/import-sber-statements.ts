@@ -26,14 +26,19 @@ const root = join(__dirname, "..");
 
 const FILES: { path: string; accountName: string; accountHint: string }[] = [
   {
-    path: "C:/Users/Ababikov/Downloads/28 февраля 2026 - 30 августа 2026.xlsx",
+    path: "C:/Users/Ababikov/Downloads/exp/19 сентября 2026 - 19 октября 2026 (1) (2).xlsx",
     accountName: "Банк",
     accountHint: "Текущий счёт …73194",
   },
   {
-    path: "C:/Users/Ababikov/Downloads/01 марта 2026 - 30 августа 2026.xlsx",
+    path: "C:/Users/Ababikov/Downloads/exp/19 сентября 2026 - 19 октября 2026.xlsx",
     accountName: "Карта",
     accountHint: "Кредитная карта …27112",
+  },
+  {
+    path: "C:/Users/Ababikov/Downloads/exp/19 сентября 2026 - 19 октября 2026 (1).xlsx",
+    accountName: "Альфа",
+    accountHint: "Альфа-счёт …54957",
   },
 ];
 

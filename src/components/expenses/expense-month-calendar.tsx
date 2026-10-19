@@ -135,9 +135,7 @@ export function ExpenseMonthCalendar({
           if (!c.iso) return <div key={i} />;
           const isSelected = selectedDate === c.iso;
           const isToday = c.iso === today;
-          const { hasAny, netOutflow } = c.summary;
-          const tone =
-            !hasAny ? null : netOutflow > 0 ? "expense" : netOutflow < 0 ? "income" : "neutral";
+          const { hasAny, tone } = c.summary;
 
           return (
             <button
@@ -151,7 +149,7 @@ export function ExpenseMonthCalendar({
                   ? "bg-primary text-primary-foreground ring-2 ring-primary"
                   : hasAny
                     ? "bg-accent/40 hover:bg-accent"
-                    : "hover:bg-muted",
+                    : "text-muted-foreground hover:bg-muted",
                 isToday && !isSelected && "ring-1 ring-primary/60"
               )}
             >
@@ -165,7 +163,7 @@ export function ExpenseMonthCalendar({
                       "size-1.5 rounded-full",
                       tone === "expense" && "bg-red-500",
                       tone === "income" && "bg-emerald-500",
-                      tone === "neutral" && "bg-muted-foreground/70"
+                      tone === "transfer" && "bg-sky-500"
                     )}
                   />
                 </span>
@@ -183,6 +181,10 @@ export function ExpenseMonthCalendar({
         <span className="inline-flex items-center gap-1">
           <span className="size-1.5 rounded-full bg-emerald-500" />
           перевес доходов
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-1.5 rounded-full bg-sky-500" />
+          переводы
         </span>
       </div>
     </div>
