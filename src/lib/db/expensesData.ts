@@ -114,6 +114,51 @@ export async function fetchExpensesPeriod(
   return { data: { accounts, categories, transactions } };
 }
 
+/** Транзакции за произвольный ISO-интервал (для горизонта 12+6). */
+export async function fetchExpensesRange(
+  userId: string,
+  startIso: string,
+  endIso: string
+): Promise<{ data: ExpensesData } | { error: string }> {
+  const [aRes, cRes, txRes] = await Promise.all([
+    supabase
+      .from("expense_accounts")
+      .select("id, name, currency, is_archived")
+      .eq("user_id", userId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("expense_categories")
+      .select("id, parent_id, name, kind, is_archived")
+      .eq("user_id", userId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("expense_transactions")
+      .select(
+        "id, occurred_at, account_id, category_id, kind, amount, currency, description, merchant, source, pending"
+      )
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .gte("occurred_at", startIso)
+      .lte("occurred_at", endIso)
+      .order("occurred_at", { ascending: true })
+      .limit(20000),
+  ]);
+  if (aRes.error) return { error: aRes.error.message };
+  if (cRes.error) return { error: cRes.error.message };
+  if (txRes.error) return { error: txRes.error.message };
+
+  return {
+    data: {
+      accounts: (aRes.data ?? []) as ExpenseAccountRow[],
+      categories: (cRes.data ?? []) as ExpenseCategoryRow[],
+      transactions: (txRes.data ?? []).map((r) => ({
+        ...r,
+        amount: Number(r.amount),
+      })) as ExpenseTransactionRow[],
+    },
+  };
+}
+
 /** Счета и категории без транзакций (лёгкий запрос для справочников). */
 export async function fetchExpenseAccountsAndCategories(
   userId: string

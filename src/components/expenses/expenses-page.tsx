@@ -11,6 +11,7 @@ import { getWorkoutUserId } from "@/lib/db/workoutUserId";
 import { useRegisterPageChatContext } from "@/contexts/page-chat-context";
 import {
   fetchExpensesPeriod,
+  fetchExpensesRange,
   totals,
   expensesByParentCategory,
   topMerchants,
@@ -19,6 +20,11 @@ import {
   type ExpensesData,
   type ExpenseTransactionRow,
 } from "@/lib/db/expensesData";
+import {
+  buildCashflowHorizon,
+  type CashflowMonthBucket,
+} from "@/lib/features/expenses/cashflowHorizon";
+import { ExpenseCashflowHorizon } from "@/components/expenses/expense-cashflow-horizon";
 import {
   insertManualExpenseTransaction,
   ensureDefaultExpenseAccount,
@@ -95,6 +101,7 @@ export function ExpensesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [overviewYear, setOverviewYear] = useState<ReturnType<typeof totals> | null>(null);
+  const [horizonBuckets, setHorizonBuckets] = useState<CashflowMonthBucket[]>([]);
 
   const [newCatName, setNewCatName] = useState("");
   const [newCatKind, setNewCatKind] = useState<ExpenseKind>("expense");
@@ -111,9 +118,17 @@ export function ExpensesPage() {
       setLoading(false);
       return;
     }
-    const [mainRes, oyRes] = await Promise.all([
+    const now = new Date();
+    const horizonFrom = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    const horizonTo = new Date(now.getFullYear(), now.getMonth() + 7, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const horizonStart = `${horizonFrom.getFullYear()}-${pad(horizonFrom.getMonth() + 1)}-01T00:00:00`;
+    const horizonEnd = `${horizonTo.getFullYear()}-${pad(horizonTo.getMonth() + 1)}-${pad(horizonTo.getDate())}T23:59:59`;
+
+    const [mainRes, oyRes, hzRes] = await Promise.all([
       fetchExpensesPeriod(user.userId, "month", { year, monthIdx0 }),
       fetchExpensesPeriod(user.userId, "year", { year }),
+      fetchExpensesRange(user.userId, horizonStart, horizonEnd),
     ]);
 
     if ("error" in mainRes) {
@@ -137,6 +152,19 @@ export function ExpensesPage() {
     setData(res.data);
     if (!("error" in oyRes)) setOverviewYear(totals(oyRes.data.transactions));
     else setOverviewYear(null);
+    if (!("error" in hzRes)) {
+      const creditIds = hzRes.data.accounts
+        .filter((a) => /карт/i.test(a.name))
+        .map((a) => a.id);
+      setHorizonBuckets(
+        buildCashflowHorizon(hzRes.data.transactions, {
+          now,
+          creditAccountIds: creditIds,
+        })
+      );
+    } else {
+      setHorizonBuckets([]);
+    }
     setLoading(false);
   }, [year, monthIdx0]);
 
@@ -603,6 +631,12 @@ export function ExpensesPage() {
           </div>
         </div>
       </div>
+
+      {horizonBuckets.length > 0 && (
+        <div className="rounded-md border border-border/70 bg-card/40 px-2 py-2 sm:px-3">
+          <ExpenseCashflowHorizon buckets={horizonBuckets} height={190} />
+        </div>
+      )}
 
       <ExpenseMonthCalendar
         year={year}
