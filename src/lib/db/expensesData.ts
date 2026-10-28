@@ -120,7 +120,7 @@ export async function fetchExpensesRange(
   startIso: string,
   endIso: string
 ): Promise<{ data: ExpensesData } | { error: string }> {
-  const [aRes, cRes, txRes] = await Promise.all([
+  const [aRes, cRes] = await Promise.all([
     supabase
       .from("expense_accounts")
       .select("id, name, currency, is_archived")
@@ -131,7 +131,16 @@ export async function fetchExpensesRange(
       .select("id, parent_id, name, kind, is_archived")
       .eq("user_id", userId)
       .order("name", { ascending: true }),
-    supabase
+  ]);
+  if (aRes.error) return { error: aRes.error.message };
+  if (cRes.error) return { error: cRes.error.message };
+
+  // PostgREST/Supabase по умолчанию режет ~1000 строк даже при limit —
+  // листаем range, иначе горизонт обрывается на середине истории.
+  const pageSize = 1000;
+  const allTx: ExpenseTransactionRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data: page, error: txErr } = await supabase
       .from("expense_transactions")
       .select(
         "id, occurred_at, account_id, category_id, kind, amount, currency, description, merchant, source, pending"
@@ -141,20 +150,21 @@ export async function fetchExpensesRange(
       .gte("occurred_at", startIso)
       .lte("occurred_at", endIso)
       .order("occurred_at", { ascending: true })
-      .limit(20000),
-  ]);
-  if (aRes.error) return { error: aRes.error.message };
-  if (cRes.error) return { error: cRes.error.message };
-  if (txRes.error) return { error: txRes.error.message };
+      .range(from, from + pageSize - 1);
+    if (txErr) return { error: txErr.message };
+    const rows = page ?? [];
+    for (const r of rows) {
+      allTx.push({ ...r, amount: Number(r.amount) } as ExpenseTransactionRow);
+    }
+    if (rows.length < pageSize) break;
+    if (from + pageSize >= 50000) break;
+  }
 
   return {
     data: {
       accounts: (aRes.data ?? []) as ExpenseAccountRow[],
       categories: (cRes.data ?? []) as ExpenseCategoryRow[],
-      transactions: (txRes.data ?? []).map((r) => ({
-        ...r,
-        amount: Number(r.amount),
-      })) as ExpenseTransactionRow[],
+      transactions: allTx,
     },
   };
 }

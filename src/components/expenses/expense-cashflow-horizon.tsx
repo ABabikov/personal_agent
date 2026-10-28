@@ -182,7 +182,11 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
         {buckets.map((b, i) => {
           const gx = PADDING.left + slot * i + barPad;
           const cx = PADDING.left + slot * i + slot / 2;
-          const showLabel = i % 2 === 0 || buckets.length <= 14;
+          const monthNum = Number(b.ym.slice(5, 7));
+          const showLabel =
+            buckets.length <= 14 || monthNum % 2 === 1 || b.isCurrent;
+          const axisLabel =
+            monthNum === 1 ? `${b.label}’${b.ym.slice(2, 4)}` : b.label;
           return (
             <g
               key={b.ym}
@@ -223,15 +227,11 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
                   x={cx}
                   y={height - PADDING.bottom + 12}
                   textAnchor="middle"
-                  className={
-                    b.isForecast
-                      ? "fill-muted-foreground"
-                      : "fill-muted-foreground"
-                  }
+                  className="fill-muted-foreground"
                   fontSize={9}
                   fontWeight={b.isCurrent ? 600 : 400}
                 >
-                  {b.label}
+                  {axisLabel}
                 </text>
               )}
             </g>
