@@ -88,39 +88,43 @@ export function hasLlmApiKey(): boolean {
   }
 }
 
+/** Бесплатные модели OpenRouter: длинный промпт и tool call проходят без кредитов. */
+const FREE_OPENROUTER_CHAIN = [
+  "openrouter/free",
+  "poolside/laguna-s-2.1:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+];
+
 function defaultPrimaryLlm(): string {
-  return getLlmProvider() === "dashscope"
-    ? "qwen-plus"
-    : "anthropic/claude-sonnet-4";
+  return getLlmProvider() === "dashscope" ? "qwen-plus" : FREE_OPENROUTER_CHAIN[0];
 }
 
 function defaultLlmFallbacks(): string[] {
-  return getLlmProvider() === "dashscope"
-    ? ["qwen-flash", "qwen-max"]
-    : ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"];
+  return getLlmProvider() === "dashscope" ? [] : FREE_OPENROUTER_CHAIN.slice(1);
 }
 
 /**
- * qwen-turbo снят 10 октября 2026 (404). qwen3.7-flash — бесплатный тир DashScope:
- * после исчерпания квоты отвечает 403 FreeTierOnly и роняет весь чат.
- * Подмена — на платную qwen-flash.
+ * Эти id больше не вызываем.
+ * Qwen: бесплатная квота кончилась, все три отвечают 403 FreeTierOnly.
+ * Claude Sonnet 4 и Gemini 2.0 Flash на OpenRouter сняты (404).
  */
-const RETIRED_LLM_MODELS: Record<string, string> = {
-  "qwen-turbo": "qwen-flash",
-  "qwen-turbo-latest": "qwen-flash",
-  "qwen-turbo-2025-04-28": "qwen-flash",
-  "qwen-turbo-2024-11-01": "qwen-flash",
-  "qwen3.7-flash": "qwen-flash",
-};
-
-const OPENROUTER_BUILTIN_CHAIN = [
+const DEAD_LLM_MODELS = new Set([
+  "qwen-plus",
+  "qwen-flash",
+  "qwen-max",
+  "qwen-turbo",
+  "qwen-turbo-latest",
+  "qwen-turbo-2025-04-28",
+  "qwen-turbo-2024-11-01",
+  "qwen3.7-flash",
   "anthropic/claude-sonnet-4",
-  "openai/gpt-4o-mini",
   "google/gemini-2.0-flash-001",
-  "deepseek/deepseek-chat",
-];
+  "google/gemini-2.0-flash",
+]);
 
-const DASHSCOPE_BUILTIN_CHAIN = ["qwen-plus", "qwen-flash", "qwen-max"];
+const OPENROUTER_BUILTIN_CHAIN = [...FREE_OPENROUTER_CHAIN];
+
+const DASHSCOPE_BUILTIN_CHAIN: string[] = [];
 
 /** Цепочка другого провайдера, без моделей из env текущего. */
 export function builtinLlmChain(provider: LlmProvider): string[] {
@@ -129,15 +133,17 @@ export function builtinLlmChain(provider: LlmProvider): string[] {
     : [...OPENROUTER_BUILTIN_CHAIN];
 }
 
-/** Основной провайдер, затем второй — если у него есть ключ. */
+/** Провайдеры, у которых после вырезания мёртвых моделей осталась цепочка. */
 export function llmProvidersToTry(): LlmProvider[] {
   const primary = getLlmProvider();
   const alt: LlmProvider = primary === "dashscope" ? "openrouter" : "dashscope";
-  return hasProviderApiKey(alt) ? [primary, alt] : [primary];
+  const ordered = [primary];
+  if (hasProviderApiKey(alt)) ordered.push(alt);
+  return ordered.filter((provider) => buildLlmChain(null, provider).length > 0);
 }
 
 function rewriteRetiredModel(model: string): string {
-  return RETIRED_LLM_MODELS[model.trim()] ?? model.trim();
+  return model.trim();
 }
 
 function defaultEmbeddingModel(): string {
@@ -234,8 +240,8 @@ export const RETRYABLE_STATUSES = new Set([402, 403, 404, 429, 503]);
 export function pickMaxTokens(model: string, requested: number): number {
   const budget = getAgentMaxCompletionTokens();
   let cap = Math.min(requested, budget);
-  if (/:free\b/i.test(model)) {
-    cap = Math.min(cap, 512);
+  if (/:free\b|\/free$/i.test(model)) {
+    cap = Math.min(cap, 2048);
   }
   return Math.max(64, cap);
 }
@@ -246,9 +252,12 @@ export function buildLlmChain(
   provider: LlmProvider = getLlmProvider()
 ): string[] {
   if (provider !== getLlmProvider()) return builtinLlmChain(provider);
-  const p = rewriteRetiredModel(primary?.trim() || PRIMARY_LLM_MODEL);
-  const rest = LLM_FALLBACKS.map(rewriteRetiredModel).filter((m) => m !== p);
-  return [p, ...rest.filter((m, i) => rest.indexOf(m) === i)];
+  const raw = [primary?.trim() || PRIMARY_LLM_MODEL, ...LLM_FALLBACKS]
+    .map(rewriteRetiredModel)
+    .filter((model) => model.length > 0 && !DEAD_LLM_MODELS.has(model));
+  const unique = raw.filter((model, index) => raw.indexOf(model) === index);
+  if (unique.length > 0) return unique;
+  return provider === "openrouter" ? [...FREE_OPENROUTER_CHAIN] : [];
 }
 
 export function buildEmbeddingChain(primary?: string | null): string[] {

@@ -47,7 +47,7 @@
 
 `chatCompletion` (`src/lib/agent/llm/openrouter.ts`):
 
-- Цепочка (дефолт `models.ts:35-42`): `[OPENROUTER_LLM_MODEL ?? 'anthropic/claude-sonnet-4', 'openai/gpt-4o-mini', 'google/gemini-2.0-flash-001', 'deepseek/deepseek-chat']`. Переопределяется `OPENROUTER_LLM_FALLBACKS`.
+- Цепочка OpenRouter по умолчанию: `openrouter/free`, затем `poolside/laguna-s-2.1:free` и `nvidia/nemotron-3-ultra-550b-a55b:free`. Переопределяется `OPENROUTER_LLM_FALLBACKS`. Qwen plus/flash/max, Claude Sonnet 4 и Gemini 2.0 Flash из цепочки убраны: квота Qwen кончилась (403), две модели OpenRouter сняты (404).
 - Для каждой модели: один HTTP-POST на `${OPENROUTER_BASE_URL}/chat/completions`.
 - **Retryable**: HTTP 402, 403, 404, 429, 503 → переходим к следующей модели и записываем попытку в `attempts`. 403 `FreeTierOnly` — кончилась бесплатная квота Qwen.
 - Если у второго провайдера есть ключ (OpenRouter ↔ DashScope), после цепочки основного пробуем его встроенные модели. Имена из env текущего провайдера на чужой хост не отправляются.
@@ -55,7 +55,7 @@
 - Если модель вернула HTTP 200, но `choices[0].message` пустой и без `tool_calls` → считаем некорректным, идём дальше.
 - Падаем (`throw`) только если упали ВСЕ.
 - В `result.attempts` всегда есть полный список — это спасает при отладке.
-- `max_tokens` берётся из `getAgentMaxCompletionTokens()` — **дефолт 1024** (`models.ts:45`), переопределяется `OPENROUTER_MAX_COMPLETION_TOKENS` (clamp 64..8192); `pickMaxTokens` дополнительно режет `:free`-модели до 512. ⚠️ Дефолт 1024 обрезает развёрнутые ответы — см. [audit.md](./audit.md#1).
+- `max_tokens` берётся из `getAgentMaxCompletionTokens()` — **дефолт 1024** (`models.ts:45`), переопределяется `OPENROUTER_MAX_COMPLETION_TOKENS` (clamp 64..8192); `pickMaxTokens` дополнительно режет `:free`-модели до 2048. ⚠️ Дефолт 1024 обрезает развёрнутые ответы — см. [audit.md](./audit.md#1).
 
 Эмбеддинги — та же логика, но цепочка короче: `text-embedding-3-large` → `text-embedding-3-small`. Если оба упали — `recallContext` возвращает пустые массивы (агент работает БЕЗ памяти, но не падает). ⚠️ Это значит, что при сбое эмбеддингов агент «забывает» пользователя — см. [audit.md](./audit.md#3).
 
