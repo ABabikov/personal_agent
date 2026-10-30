@@ -9,9 +9,12 @@ export type CashflowMonthBucket = {
   tooltip: string;
   income: number;
   expense: number;
-  /** Только гашения карты с дебета (не все transfer) */
+  /**
+   * Отток ликвидa: переводы со счетов не-кредитки (гашения / внутрибанк с дебета).
+   * Строки на счёте «Карта» не считаем — иначе двойной учёт.
+   */
   transfer: number;
-  /** Накопительный баланс на конец месяца */
+  /** Накопительный операционный баланс на конец месяца */
   balance: number;
   /** Месяц строго после текущего календарного */
   isForecast: boolean;
@@ -45,10 +48,18 @@ function monthTooltip(ym: string): string {
 }
 
 /**
- * Отток ликвидa: гашение кредитки с дебета.
- * Внутрибанковские переводы Банк↔Альфа и движения на счёте «Карта» —
- * не считаем (иначе кривая уходит в миллионы минуса).
+ * Отток операционного ликвидa: transfer со счёта дебета/кошелька.
+ * Не берём строки кредитки (встречная сторона того же перевода).
+ * Отложенный USD/пассив в эту кривую не входит — только рублёвый операционный кэш.
  */
+export function isDebitSideTransfer(
+  t: Pick<ExpenseTransactionRow, "kind" | "account_id">,
+  creditIds: Set<string>
+): boolean {
+  return t.kind === "transfer" && !creditIds.has(t.account_id);
+}
+
+/** @deprecated use isDebitSideTransfer */
 export function isCardPaydownTransfer(
   t: Pick<
     ExpenseTransactionRow,
@@ -56,26 +67,16 @@ export function isCardPaydownTransfer(
   >,
   creditIds: Set<string>
 ): boolean {
-  if (t.kind !== "transfer") return false;
-  if (creditIds.has(t.account_id)) return false;
-  const hay = `${t.description ?? ""} ${t.merchant ?? ""}`.toLowerCase();
-  return (
-    hay.includes("погашение") ||
-    hay.includes("гашение") ||
-    hay.includes("pay-card") ||
-    hay.includes("погаш. од") ||
-    /\bод\b/.test(hay)
-  );
+  return isDebitSideTransfer(t, creditIds);
 }
 
 /**
  * Окно: `monthsBack` полных месяцев назад + текущий + `monthsForward` вперёд.
  * Столбцы: все доходы/расходы.
- * Баланс (ликвид): доход − расход с дебета − гашения карты; карта в баланс не входит.
- * HOLD/прогноз с текущего дня — «вперёд».
+ * Баланс: доход − расход с дебета − переводы с дебета; карта в кривую не входит.
  *
- * Если задан `anchorBalance`, сдвигаем всю кривую так, чтобы баланс
- * текущего месяца совпал с якорем (факт кэша «сейчас»).
+ * `anchorBalance` — факт операционного кэша «сейчас» (без отложенного USD).
+ * Сдвигает всю кривую так, чтобы текущий месяц = якорь.
  */
 export function buildCashflowHorizon(
   transactions: ExpenseTransactionRow[],
@@ -84,9 +85,8 @@ export function buildCashflowHorizon(
     monthsBack?: number;
     monthsForward?: number;
     startBalance?: number;
-    /** Факт ликвидa «сейчас» — выравнивает кривую по текущему месяцу */
+    /** Операционный ликвид «сейчас», ₽ (пассив/USD не включать) */
     anchorBalance?: number;
-    /** Счета кредитки — их expense не уменьшает кривую баланса */
     creditAccountIds?: Iterable<string>;
   } = {}
 ): CashflowMonthBucket[] {
@@ -124,17 +124,16 @@ export function buildCashflowHorizon(
     const ym = t.occurred_at.slice(0, 7);
     const cur = map.get(ym);
     if (!cur) continue;
-    // прошлые месяцы и прошедшие дни текущего — только факт (без устаревшего HOLD)
     const day = t.occurred_at.slice(0, 10);
     if (t.pending && (ym < currentYm || day < todayIso)) continue;
     if (t.kind === "income") cur.income += t.amount;
     else if (t.kind === "expense") {
       cur.expense += t.amount;
       if (!creditIds.has(t.account_id)) cur.debitExpense += t.amount;
-    } else if (t.kind === "transfer") {
-      if (isCardPaydownTransfer(t, creditIds)) cur.transfer += t.amount;
+    } else if (isDebitSideTransfer(t, creditIds)) {
+      cur.transfer += t.amount;
     }
-    // withdrawal не трогаем — смена формы денег
+    // withdrawal: наличка всё ещё ликвид — не вычитаем
   }
 
   let bal = startBalance;
@@ -195,7 +194,7 @@ export function buildWeeklyBalance(
 
   function weekStartIso(iso: string): string {
     const d = new Date(iso.slice(0, 10) + "T12:00:00");
-    const day = (d.getDay() + 6) % 7; // пн=0
+    const day = (d.getDay() + 6) % 7;
     d.setDate(d.getDate() - day);
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
@@ -216,7 +215,7 @@ export function buildWeeklyBalance(
     else if (t.kind === "expense") {
       cur.expense += t.amount;
       if (!creditIds.has(t.account_id)) cur.debitExpense += t.amount;
-    } else if (isCardPaydownTransfer(t, creditIds)) {
+    } else if (isDebitSideTransfer(t, creditIds)) {
       cur.transfer += t.amount;
     }
     weeks.set(w, cur);

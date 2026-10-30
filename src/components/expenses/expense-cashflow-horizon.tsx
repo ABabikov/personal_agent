@@ -107,8 +107,8 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
           12 мес назад · 6 вперёд · доход / расход / баланс
         </p>
         <p className="text-[10px] text-muted-foreground">
-          баланс ≈ ликвид: доход − расход с дебета − гашения карты (внутрибанк не
-          считаем)
+          баланс ≈ операционный ₽-кэш (якорь «сейчас»); без кредитки и без
+          отложенного USD/пассива
         </p>
       </div>
 
@@ -282,7 +282,9 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
             </div>
             {hovered.transfer > 0 && (
               <div className="flex justify-between gap-3">
-                <span className="text-sky-600 dark:text-sky-400">гашения</span>
+                <span className="text-sky-600 dark:text-sky-400">
+                  списания с дебета
+                </span>
                 <span>{formatRub(hovered.transfer)}</span>
               </div>
             )}

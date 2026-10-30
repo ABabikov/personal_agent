@@ -156,10 +156,18 @@ export function ExpensesPage() {
       const creditIds = hzRes.data.accounts
         .filter((a) => /карт/i.test(a.name))
         .map((a) => a.id);
+      // Операционный рублёвый кэш «сейчас» (без отложенного USD/пассива).
+      // Задаётся NEXT_PUBLIC_EXPENSE_OPERATING_CASH, иначе 125000.
+      const rawAnchor = process.env.NEXT_PUBLIC_EXPENSE_OPERATING_CASH;
+      const anchorBalance = Number(rawAnchor);
       setHorizonBuckets(
         buildCashflowHorizon(hzRes.data.transactions, {
           now,
+          monthsForward: 8,
           creditAccountIds: creditIds,
+          anchorBalance: Number.isFinite(anchorBalance)
+            ? anchorBalance
+            : 125_000,
         })
       );
     } else {
