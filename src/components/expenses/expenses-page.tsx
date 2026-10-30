@@ -25,6 +25,11 @@ import {
   type CashflowMonthBucket,
 } from "@/lib/features/expenses/cashflowHorizon";
 import { ExpenseCashflowHorizon } from "@/components/expenses/expense-cashflow-horizon";
+import { ExpensePositionStrip } from "@/components/expenses/expense-position-strip";
+import {
+  buildPositionSnapshot,
+  getOperatingCashRub,
+} from "@/lib/features/expenses/positionSnapshot";
 import {
   insertManualExpenseTransaction,
   ensureDefaultExpenseAccount,
@@ -102,6 +107,7 @@ export function ExpensesPage() {
 
   const [overviewYear, setOverviewYear] = useState<ReturnType<typeof totals> | null>(null);
   const [horizonBuckets, setHorizonBuckets] = useState<CashflowMonthBucket[]>([]);
+  const positionSnapshot = useMemo(() => buildPositionSnapshot(), []);
 
   const [newCatName, setNewCatName] = useState("");
   const [newCatKind, setNewCatKind] = useState<ExpenseKind>("expense");
@@ -156,18 +162,12 @@ export function ExpensesPage() {
       const creditIds = hzRes.data.accounts
         .filter((a) => /карт/i.test(a.name))
         .map((a) => a.id);
-      // Операционный рублёвый кэш «сейчас» (без отложенного USD/пассива).
-      // Задаётся NEXT_PUBLIC_EXPENSE_OPERATING_CASH, иначе 125000.
-      const rawAnchor = process.env.NEXT_PUBLIC_EXPENSE_OPERATING_CASH;
-      const anchorBalance = Number(rawAnchor);
       setHorizonBuckets(
         buildCashflowHorizon(hzRes.data.transactions, {
           now,
           monthsForward: 8,
           creditAccountIds: creditIds,
-          anchorBalance: Number.isFinite(anchorBalance)
-            ? anchorBalance
-            : 125_000,
+          anchorBalance: getOperatingCashRub(),
         })
       );
     } else {
@@ -638,6 +638,10 @@ export function ExpensesPage() {
             </dl>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-md border border-border/70 bg-card/40 px-3 py-3 sm:px-4">
+        <ExpensePositionStrip snapshot={positionSnapshot} />
       </div>
 
       {horizonBuckets.length > 0 && (
