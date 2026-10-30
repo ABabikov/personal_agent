@@ -3,25 +3,20 @@ import type { ExpenseTransactionRow } from "@/lib/db/expensesData";
 export type CashflowMonthBucket = {
   /** YYYY-MM */
   ym: string;
-  /** Короткий ярлык оси, напр. «окт» */
   label: string;
-  /** Полная подпись тултипа */
   tooltip: string;
   income: number;
   expense: number;
-  /**
-   * Отток ликвидa: переводы со счетов не-кредитки (гашения / внутрибанк с дебета).
-   * Строки на счёте «Карта» не считаем — иначе двойной учёт.
-   */
+  /** Переводы с дебета (без внесения наличных) */
   transfer: number;
   /**
-   * Операционный ₽-баланс на конец месяца.
-   * `null` для прошлого: абсолют из выписки не восстановить (траты на карте,
-   * внутрибанк без открытия) — кривая начинается с текущего месяца.
+   * Операционный ₽ на конец месяца.
+   * Сейчас = якорь; прошлое = оценка назад от якоря; прогноз = вперёд.
    */
   balance: number | null;
-  /** Нетто месяца по ликвидy: доход − дебет-расход − переводы с дебета */
   liquidNet: number;
+  /** Прошлое, восстановленное по оборотам (не прямой замер) */
+  balanceEstimated: boolean;
   isForecast: boolean;
   isCurrent: boolean;
 };
@@ -51,18 +46,37 @@ function monthTooltip(ym: string): string {
   });
 }
 
-/**
- * Отток операционного ликвидa: transfer со счёта дебета/кошелька.
- * Не берём строки кредитки (встречная сторона того же перевода).
- */
-export function isDebitSideTransfer(
-  t: Pick<ExpenseTransactionRow, "kind" | "account_id">,
-  creditIds: Set<string>
+/** Внесение наличных на счёт — не отток ликвидa (просто смена формы). */
+export function isCashInTransfer(
+  t: Pick<ExpenseTransactionRow, "description" | "merchant">
 ): boolean {
-  return t.kind === "transfer" && !creditIds.has(t.account_id);
+  const h = `${t.description ?? ""} ${t.merchant ?? ""}`.toLowerCase();
+  return (
+    h.includes("внесение средств") ||
+    h.includes("внесение наличных") ||
+    h.includes("cashin") ||
+    h.includes("через устройство")
+  );
 }
 
-/** @deprecated use isDebitSideTransfer */
+/**
+ * Отток с дебета: transfer не с кредитки и не cash-in.
+ */
+export function isDebitSideTransfer(
+  t: Pick<
+    ExpenseTransactionRow,
+    "kind" | "account_id" | "description" | "merchant"
+  >,
+  creditIds: Set<string>
+): boolean {
+  return (
+    t.kind === "transfer" &&
+    !creditIds.has(t.account_id) &&
+    !isCashInTransfer(t)
+  );
+}
+
+/** @deprecated */
 export function isCardPaydownTransfer(
   t: Pick<
     ExpenseTransactionRow,
@@ -73,14 +87,24 @@ export function isCardPaydownTransfer(
   return isDebitSideTransfer(t, creditIds);
 }
 
+type MonthAcc = {
+  income: number;
+  expense: number;
+  transfer: number;
+  /** Доход только на не-кредитных счетах */
+  debitIncome: number;
+  debitExpense: number;
+};
+
 /**
- * Окно: `monthsBack` + текущий + `monthsForward`.
- * Столбцы доход/расход — по всем месяцам.
+ * Окно: monthsBack + текущий + monthsForward.
  *
- * Кривая баланса — только с текущего месяца:
- *   текущий = `anchorBalance` (факт операционного ₽-кэша «сейчас», без USD/пассива);
- *   дальше = накопление прогноза (доход − дебет-расход − переводы с дебета).
- * Прошлое: `balance = null` (не выдумываем 1–3 млн из неполных данных).
+ * Баланс:
+ * — сейчас = anchorBalance (факт операционного ₽);
+ * — прошлое = оценка: идём назад от якоря по банковским оборотам
+ *   (доход с дебета − расход с дебета − переводы с дебета; cash-in игнор;
+ *   месяцы «только карта» без банка → net 0, кривая плоская);
+ * — прогноз = вперёд от якоря по плановым потокам.
  */
 export function buildCashflowHorizon(
   transactions: ExpenseTransactionRow[],
@@ -88,9 +112,7 @@ export function buildCashflowHorizon(
     now?: Date;
     monthsBack?: number;
     monthsForward?: number;
-    /** @deprecated не используется для абсолюта прошлого */
     startBalance?: number;
-    /** Операционный ликвид «сейчас», ₽ (пассив/USD не включать). По умолчанию 125000. */
     anchorBalance?: number;
     creditAccountIds?: Iterable<string>;
   } = {}
@@ -115,12 +137,16 @@ export function buildCashflowHorizon(
     months.push(ymKey(d));
   }
 
-  const map = new Map<
-    string,
-    { income: number; expense: number; transfer: number; debitExpense: number }
-  >();
-  for (const ym of months)
-    map.set(ym, { income: 0, expense: 0, transfer: 0, debitExpense: 0 });
+  const map = new Map<string, MonthAcc>();
+  for (const ym of months) {
+    map.set(ym, {
+      income: 0,
+      expense: 0,
+      transfer: 0,
+      debitIncome: 0,
+      debitExpense: 0,
+    });
+  }
 
   const windowStart = `${months[0]}-01T00:00:00`;
   const [ly, lm] = months[months.length - 1].split("-").map(Number);
@@ -133,56 +159,74 @@ export function buildCashflowHorizon(
     const cur = map.get(ym);
     if (!cur) continue;
     const day = t.occurred_at.slice(0, 10);
-    // устаревший HOLD в прошлом / прошедших днях текущего — пропускаем
     if (t.pending && (ym < currentYm || day < todayIso)) continue;
-    if (t.kind === "income") cur.income += t.amount;
-    else if (t.kind === "expense") {
+
+    const onCredit = creditIds.has(t.account_id);
+    if (t.kind === "income") {
+      cur.income += t.amount;
+      if (!onCredit) cur.debitIncome += t.amount;
+    } else if (t.kind === "expense") {
       cur.expense += t.amount;
-      if (!creditIds.has(t.account_id)) cur.debitExpense += t.amount;
+      if (!onCredit) cur.debitExpense += t.amount;
     } else if (isDebitSideTransfer(t, creditIds)) {
       cur.transfer += t.amount;
     }
   }
 
-  const out: CashflowMonthBucket[] = [];
-  let forwardBal: number | null = null;
-
-  for (const ym of months) {
+  /** Нетто для кривой ликвидa (банк/кошельки, не карта). */
+  function liquidNetFor(ym: string, isForecast: boolean): number {
     const cur = map.get(ym)!;
-    const liquidNet = cur.income - cur.debitExpense - cur.transfer;
+    if (isForecast) {
+      // в прогнозе доходы уже на Банк
+      return cur.income - cur.debitExpense - cur.transfer;
+    }
+    // Месяц без банковского движения: ЗП в импорте часто на «Карте»,
+    // гашений нет → не раздуваем ликвид доходами карты.
+    const thinBank =
+      cur.transfer < 10_000 &&
+      cur.debitExpense < 10_000 &&
+      cur.debitIncome < 80_000;
+    if (thinBank) return 0;
+    return cur.debitIncome - cur.debitExpense - cur.transfer;
+  }
+
+  const currentIdx = months.indexOf(currentYm);
+  const nets = months.map((ym, i) =>
+    liquidNetFor(ym, i > currentIdx)
+  );
+
+  // Сейчас = якорь; назад — оценка; вперёд — прогноз
+  const balances: (number | null)[] = months.map(() => null);
+  balances[currentIdx] = anchor;
+
+  for (let i = currentIdx - 1; i >= 0; i--) {
+    // end[i] = end[i+1] - net[i+1]
+    balances[i] = (balances[i + 1] as number) - nets[i + 1];
+  }
+  for (let i = currentIdx + 1; i < months.length; i++) {
+    balances[i] = (balances[i - 1] as number) + nets[i];
+  }
+
+  return months.map((ym, i) => {
+    const cur = map.get(ym)!;
     const isCurrent = ym === currentYm;
     const isForecast = ym > currentYm;
-
-    let balance: number | null = null;
-    if (isCurrent) {
-      // факт «сейчас» — не восстанавливаем из истории
-      forwardBal = anchor;
-      balance = forwardBal;
-    } else if (isForecast && forwardBal != null) {
-      // прогноз: от якоря дальше по плановым потокам месяца
-      forwardBal += liquidNet;
-      balance = forwardBal;
-    }
-    // прошлое: balance остаётся null
-
-    out.push({
+    return {
       ym,
       label: monthLabel(ym).replace(".", ""),
       tooltip: monthTooltip(ym),
       income: cur.income,
       expense: cur.expense,
       transfer: cur.transfer,
-      balance,
-      liquidNet,
+      balance: balances[i],
+      liquidNet: nets[i],
+      balanceEstimated: !isCurrent && !isForecast,
       isCurrent,
       isForecast,
-    });
-  }
-
-  return out;
+    };
+  });
 }
 
-/** Недельные точки баланса (отладка). Без якоря — только дельты. */
 export function buildWeeklyBalance(
   transactions: ExpenseTransactionRow[],
   options: {

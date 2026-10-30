@@ -111,11 +111,10 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
     <div className="relative w-full">
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-[11px] font-medium text-muted-foreground">
-          12 мес назад · вперёд · доход / расход; баланс с «сейчас»
+          12 мес · доход / расход / баланс (история — оценка по банку)
         </p>
         <p className="text-[10px] text-muted-foreground">
-          баланс = операционный ₽ с текущего месяца (якорь); прошлое — только
-          столбцы; USD/пассив вне кривой
+          сейчас = якорь ₽; прошлое назад от якоря; USD вне кривой
         </p>
       </div>
 
@@ -299,16 +298,18 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
               </div>
             )}
             <div className="flex justify-between gap-3 border-t border-border/60 pt-0.5 font-semibold">
-              <span className="text-sky-600 dark:text-sky-400">баланс</span>
+              <span className="text-sky-600 dark:text-sky-400">
+                баланс{hovered.balanceEstimated ? " ≈" : ""}
+              </span>
               <span>
                 {hovered.balance != null
                   ? formatRub(hovered.balance)
                   : "н/д"}
               </span>
             </div>
-            {hovered.balance == null && (
+            {hovered.balanceEstimated && (
               <div className="text-[10px] font-normal text-muted-foreground">
-                нетто по ликвиду за месяц: {formatRub(hovered.liquidNet)}
+                оценка по оборотам банка (не замер)
               </div>
             )}
           </div>
@@ -326,7 +327,7 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="size-1.5 rounded-full" style={{ background: COLOR_BALANCE }} />
-          баланс (с сейчас)
+          баланс
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="size-2 rounded-sm bg-muted" />
