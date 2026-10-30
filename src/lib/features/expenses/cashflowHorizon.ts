@@ -101,10 +101,9 @@ type MonthAcc = {
  *
  * Баланс:
  * — сейчас = anchorBalance (факт операционного ₽);
- * — прошлое = оценка: идём назад от якоря по банковским оборотам
- *   (доход с дебета − расход с дебета − переводы с дебета; cash-in игнор;
- *   месяцы «только карта» без банка → net 0, кривая плоская);
- * — прогноз = вперёд от якоря по плановым потокам.
+ * — прошлое = оценка назад от якоря: доход − расход (все счета;
+ *   переводы не двигают оценку — деньги ниоткуда больше не берутся);
+ * — прогноз = вперёд от якоря: доход − расход_с_дебета − переводы_с_дебета.
  */
 export function buildCashflowHorizon(
   transactions: ExpenseTransactionRow[],
@@ -173,21 +172,15 @@ export function buildCashflowHorizon(
     }
   }
 
-  /** Нетто для кривой ликвидa (банк/кошельки, не карта). */
+  /** Нетто месяца для кривой баланса. */
   function liquidNetFor(ym: string, isForecast: boolean): number {
     const cur = map.get(ym)!;
     if (isForecast) {
-      // в прогнозе доходы уже на Банк
+      // в прогнозе доходы уже на Банк; гашения — отдельным transfer
       return cur.income - cur.debitExpense - cur.transfer;
     }
-    // Месяц без банковского движения: ЗП в импорте часто на «Карте»,
-    // гашений нет → не раздуваем ликвид доходами карты.
-    const thinBank =
-      cur.transfer < 10_000 &&
-      cur.debitExpense < 10_000 &&
-      cur.debitIncome < 80_000;
-    if (thinBank) return 0;
-    return cur.debitIncome - cur.debitExpense - cur.transfer;
+    // история: только доход − расход (переводы = смена формы, не источник)
+    return cur.income - cur.expense;
   }
 
   const currentIdx = months.indexOf(currentYm);

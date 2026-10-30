@@ -111,7 +111,7 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
     <div className="relative w-full">
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-[11px] font-medium text-muted-foreground">
-          12 мес · доход / расход / баланс (история — оценка по банку)
+          12 мес · доход / расход / баланс (история — доход − расход)
         </p>
         <p className="text-[10px] text-muted-foreground">
           сейчас = якорь ₽; прошлое назад от якоря; USD вне кривой
@@ -309,7 +309,7 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
             </div>
             {hovered.balanceEstimated && (
               <div className="text-[10px] font-normal text-muted-foreground">
-                оценка по оборотам банка (не замер)
+                оценка: якорь ± (доход − расход)
               </div>
             )}
           </div>
