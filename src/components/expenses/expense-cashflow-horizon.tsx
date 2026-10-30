@@ -38,10 +38,13 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
       ...buckets.flatMap((b) => [b.income, b.expense]),
       1
     );
-    const balVals = buckets.map((b) => b.balance);
-    const balMin = Math.min(...balVals, 0);
-    const balMax = Math.max(...balVals, 0);
-    const balPad = (balMax - balMin) * 0.12 || Math.max(10_000, Math.abs(balMax) * 0.1);
+    const balVals = buckets
+      .map((b) => b.balance)
+      .filter((v): v is number => v != null);
+    const balMin = balVals.length ? Math.min(...balVals, 0) : 0;
+    const balMax = balVals.length ? Math.max(...balVals, 0) : 100_000;
+    const balPad =
+      (balMax - balMin) * 0.12 || Math.max(10_000, Math.abs(balMax) * 0.1);
     const yBalMin = balMin - balPad;
     const yBalMax = balMax + balPad;
 
@@ -90,12 +93,16 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
   const { yBar, yBal, slot, barPad, barW, barTicks, balTicks } = layout;
   const zeroY = yBar(0);
 
+  // Кривая только там, где balance известен (текущий + прогноз)
+  const firstBalIdx = buckets.findIndex((p) => p.balance != null);
   const balancePath = buckets
     .map((b, i) => {
+      if (b.balance == null) return null;
       const x = PADDING.left + slot * i + slot / 2;
       const y = yBal(b.balance);
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      return `${i === firstBalIdx ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
     })
+    .filter(Boolean)
     .join(" ");
 
   const hovered = hover != null ? buckets[hover] : null;
@@ -104,11 +111,11 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
     <div className="relative w-full">
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-[11px] font-medium text-muted-foreground">
-          12 мес назад · 6 вперёд · доход / расход / баланс
+          12 мес назад · вперёд · доход / расход; баланс с «сейчас»
         </p>
         <p className="text-[10px] text-muted-foreground">
-          баланс ≈ операционный ₽-кэш (якорь «сейчас»); без кредитки и без
-          отложенного USD/пассива
+          баланс = операционный ₽ с текущего месяца (якорь); прошлое — только
+          столбцы; USD/пассив вне кривой
         </p>
       </div>
 
@@ -238,16 +245,19 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
           );
         })}
 
-        {/* кривая баланса */}
-        <path
-          d={balancePath}
-          fill="none"
-          stroke={COLOR_BALANCE}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {/* кривая баланса — только текущий + прогноз */}
+        {balancePath && (
+          <path
+            d={balancePath}
+            fill="none"
+            stroke={COLOR_BALANCE}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
         {buckets.map((b, i) => {
+          if (b.balance == null) return null;
           const x = PADDING.left + slot * i + slot / 2;
           const y = yBal(b.balance);
           return (
@@ -290,8 +300,17 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
             )}
             <div className="flex justify-between gap-3 border-t border-border/60 pt-0.5 font-semibold">
               <span className="text-sky-600 dark:text-sky-400">баланс</span>
-              <span>{formatRub(hovered.balance)}</span>
+              <span>
+                {hovered.balance != null
+                  ? formatRub(hovered.balance)
+                  : "н/д"}
+              </span>
             </div>
+            {hovered.balance == null && (
+              <div className="text-[10px] font-normal text-muted-foreground">
+                нетто по ликвиду за месяц: {formatRub(hovered.liquidNet)}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -307,7 +326,7 @@ export function ExpenseCashflowHorizon({ buckets, height = 200 }: Props) {
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="size-1.5 rounded-full" style={{ background: COLOR_BALANCE }} />
-          баланс
+          баланс (с сейчас)
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="size-2 rounded-sm bg-muted" />
