@@ -9,7 +9,7 @@ export type CashflowMonthBucket = {
   tooltip: string;
   income: number;
   expense: number;
-  /** Переводы/гашения — отток с дебета */
+  /** Только гашения карты с дебета (не все transfer) */
   transfer: number;
   /** Накопительный баланс на конец месяца */
   balance: number;
@@ -45,10 +45,37 @@ function monthTooltip(ym: string): string {
 }
 
 /**
+ * Отток ликвидa: гашение кредитки с дебета.
+ * Внутрибанковские переводы Банк↔Альфа и движения на счёте «Карта» —
+ * не считаем (иначе кривая уходит в миллионы минуса).
+ */
+export function isCardPaydownTransfer(
+  t: Pick<
+    ExpenseTransactionRow,
+    "kind" | "account_id" | "description" | "merchant"
+  >,
+  creditIds: Set<string>
+): boolean {
+  if (t.kind !== "transfer") return false;
+  if (creditIds.has(t.account_id)) return false;
+  const hay = `${t.description ?? ""} ${t.merchant ?? ""}`.toLowerCase();
+  return (
+    hay.includes("погашение") ||
+    hay.includes("гашение") ||
+    hay.includes("pay-card") ||
+    hay.includes("погаш. од") ||
+    /\bод\b/.test(hay)
+  );
+}
+
+/**
  * Окно: `monthsBack` полных месяцев назад + текущий + `monthsForward` вперёд.
  * Столбцы: все доходы/расходы.
- * Баланс (ликвид): доход − расход с дебета − переводы; карта в баланс не входит.
+ * Баланс (ликвид): доход − расход с дебета − гашения карты; карта в баланс не входит.
  * HOLD/прогноз с текущего дня — «вперёд».
+ *
+ * Если задан `anchorBalance`, сдвигаем всю кривую так, чтобы баланс
+ * текущего месяца совпал с якорем (факт кэша «сейчас»).
  */
 export function buildCashflowHorizon(
   transactions: ExpenseTransactionRow[],
@@ -57,6 +84,8 @@ export function buildCashflowHorizon(
     monthsBack?: number;
     monthsForward?: number;
     startBalance?: number;
+    /** Факт ликвидa «сейчас» — выравнивает кривую по текущему месяцу */
+    anchorBalance?: number;
     /** Счета кредитки — их expense не уменьшает кривую баланса */
     creditAccountIds?: Iterable<string>;
   } = {}
@@ -102,7 +131,9 @@ export function buildCashflowHorizon(
     else if (t.kind === "expense") {
       cur.expense += t.amount;
       if (!creditIds.has(t.account_id)) cur.debitExpense += t.amount;
-    } else if (t.kind === "transfer") cur.transfer += t.amount;
+    } else if (t.kind === "transfer") {
+      if (isCardPaydownTransfer(t, creditIds)) cur.transfer += t.amount;
+    }
     // withdrawal не трогаем — смена формы денег
   }
 
@@ -123,15 +154,36 @@ export function buildCashflowHorizon(
       isForecast: ym > currentYm,
     });
   }
+
+  if (options.anchorBalance != null && Number.isFinite(options.anchorBalance)) {
+    const cur = out.find((b) => b.isCurrent);
+    if (cur) {
+      const shift = options.anchorBalance - cur.balance;
+      for (const b of out) b.balance += shift;
+    }
+  }
+
   return out;
 }
 
 /** Недельные точки баланса по транзакциям (для ответа / отладки). */
 export function buildWeeklyBalance(
   transactions: ExpenseTransactionRow[],
-  options: { fromIso: string; toIso: string; startBalance?: number }
-): { weekStart: string; balance: number; income: number; expense: number; transfer: number }[] {
+  options: {
+    fromIso: string;
+    toIso: string;
+    startBalance?: number;
+    creditAccountIds?: Iterable<string>;
+  }
+): {
+  weekStart: string;
+  balance: number;
+  income: number;
+  expense: number;
+  transfer: number;
+}[] {
   const startBalance = options.startBalance ?? 0;
+  const creditIds = new Set(options.creditAccountIds ?? []);
   const txs = transactions
     .filter(
       (t) =>
@@ -150,14 +202,23 @@ export function buildWeeklyBalance(
 
   const weeks = new Map<
     string,
-    { income: number; expense: number; transfer: number }
+    { income: number; expense: number; transfer: number; debitExpense: number }
   >();
   for (const t of txs) {
     const w = weekStartIso(t.occurred_at);
-    const cur = weeks.get(w) ?? { income: 0, expense: 0, transfer: 0 };
+    const cur = weeks.get(w) ?? {
+      income: 0,
+      expense: 0,
+      transfer: 0,
+      debitExpense: 0,
+    };
     if (t.kind === "income") cur.income += t.amount;
-    else if (t.kind === "expense") cur.expense += t.amount;
-    else cur.transfer += t.amount;
+    else if (t.kind === "expense") {
+      cur.expense += t.amount;
+      if (!creditIds.has(t.account_id)) cur.debitExpense += t.amount;
+    } else if (isCardPaydownTransfer(t, creditIds)) {
+      cur.transfer += t.amount;
+    }
     weeks.set(w, cur);
   }
 
@@ -165,7 +226,13 @@ export function buildWeeklyBalance(
   let bal = startBalance;
   return keys.map((weekStart) => {
     const cur = weeks.get(weekStart)!;
-    bal += cur.income - cur.expense - cur.transfer;
-    return { weekStart, balance: bal, ...cur };
+    bal += cur.income - cur.debitExpense - cur.transfer;
+    return {
+      weekStart,
+      balance: bal,
+      income: cur.income,
+      expense: cur.expense,
+      transfer: cur.transfer,
+    };
   });
 }

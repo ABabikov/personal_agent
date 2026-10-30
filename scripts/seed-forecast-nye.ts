@@ -1,11 +1,14 @@
 /**
- * Плановые операции до НГ + график гашения кредитки.
+ * Прогноз доходов/расходов: НГ-хвост + база до лета 2027.
  *
- * Правила:
+ * Правила (актуализация 30.10.2026):
  *   — аренда, коммуналка, короткий отпуск, НГ → дебет (Банк)
- *   — базовые траты → кредитка (Карта)
+ *   — базовые траты → кредитка (Карта), ~100к/мес (~3.3к/день)
  *   — большой отпуск 14–29.11 не закладываем (деньги отложены)
- *   — цель: выйти в 0 по ОД кредитки хотя бы раз (после отпускных 11.11)
+ *   — до 11.11: кэш копим → полное гашение ОД одним платежом
+ *   — с янв 2027: обычный ритм аванс 25-го / ЗП 10-го; гашение ОД с ЗП
+ *   — горизонт базы: янв–июнь 2027 (до лета)
+ *   — разовые: долг маме 60к (25.01, сразу после аванса), Питер ~150к (15.06)
  *
  *   npx tsx scripts/seed-forecast-nye.ts --dry-run
  *   npx tsx scripts/seed-forecast-nye.ts
@@ -18,10 +21,10 @@ import type { Database, ExpenseKind } from "../src/types/database";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Оценка долга карты на 19.10: траты после погашения ОД 09.10 (~150к, из них билеты 93к) */
-const START_CARD_DEBT = 150_000;
-/** Живые деньги: Альфа ~14к, Банк 0 */
-const START_DEBIT = 14_200;
+/** Факт ~30.10: долг карты */
+const START_CARD_DEBT = 200_000;
+/** Факт ~30.10: живые деньги на счетах */
+const START_DEBIT = 125_000;
 
 function loadEnv() {
   const p = join(root, ".env");
@@ -127,22 +130,133 @@ type Planned = {
   categoryName?: string;
 };
 
-function buildPlan(): Planned[] {
-  const AVG_HALF = 115_020;
-  const VAC_BIG = 126_000;
-  const VAC_SHORT = 31_400;
+const AVG_HALF = 115_020;
+/** База на карте без аренды/разовых: ~3.3к/день ≈ 100к/мес */
+const BASE_CARD_MONTH = 100_000;
+const RENT = 52_000;
+/** Коммуналка/дом по базе (исторически ~9к; округление) */
+const UTILITIES = 10_000;
 
-  return [
-    // —— доходы → Банк ——
-    {
-      date: "2026-10-24",
+const MONTH_RU = [
+  "",
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+];
+
+function ymd(y: number, m: number, d: number) {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Обычный месяц: аванс 25-го / ЗП 10-го след.мес / аренда / коммуналка / база карта / гашение с ЗП */
+function buildBaseMonths(fromYm: string, toYm: string): Planned[] {
+  const out: Planned[] = [];
+  let [y, m] = fromYm.split("-").map(Number);
+  const [ey, em] = toYm.split("-").map(Number);
+
+  while (y < ey || (y === ey && m <= em)) {
+    const label = MONTH_RU[m];
+    const ym = `${y}-${String(m).padStart(2, "0")}`;
+
+    // аванс текущего месяца (25-е)
+    out.push({
+      date: ymd(y, m, 25),
       kind: "income",
       amount: AVG_HALF,
-      slug: "advance-oct",
-      description: "[прогноз] Аванс за октябрь",
+      slug: `advance-${ym}`,
+      description: `[прогноз] Аванс ${label} ${y}`,
       merchant: "Зарплата (аванс)",
       account: "Банк",
-    },
+    });
+
+    // база месяца на карте (середина месяца)
+    out.push({
+      date: ymd(y, m, 20),
+      kind: "expense",
+      amount: BASE_CARD_MONTH,
+      slug: `base-card-${ym}`,
+      description: `[прогноз] База ${label} ${y} с кредитки (~100к, без аренды)`,
+      merchant: "Базовые расходы",
+      account: "Карта",
+    });
+
+    // коммуналка 15-го с дебета
+    out.push({
+      date: ymd(y, m, 15),
+      kind: "expense",
+      amount: UTILITIES,
+      slug: `utilities-${ym}`,
+      description: `[прогноз] Коммуналка / дом ${label} ${y}`,
+      merchant: "Коммуналка",
+      account: "Банк",
+    });
+
+    // ЗП за этот месяц → 10-е следующего + аренда + гашение ОД (~база прошлого цикла)
+    let ny = y;
+    let nm = m + 1;
+    if (nm > 12) {
+      nm = 1;
+      ny++;
+    }
+    const nextYm = `${ny}-${String(nm).padStart(2, "0")}`;
+    out.push({
+      date: ymd(ny, nm, 10),
+      kind: "income",
+      amount: AVG_HALF,
+      slug: `salary-${ym}`,
+      description: `[прогноз] ЗП за ${label} ${y}`,
+      merchant: "Зарплата",
+      account: "Банк",
+    });
+    out.push({
+      date: ymd(ny, nm, 10),
+      kind: "expense",
+      amount: RENT,
+      slug: `rent-${nextYm}`,
+      description: `[прогноз] Аренда ${MONTH_RU[nm]} ${ny}`,
+      merchant: "Аренда",
+      account: "Банк",
+      categoryName: "аренда",
+    });
+    out.push({
+      date: ymd(ny, nm, 10),
+      kind: "transfer",
+      amount: BASE_CARD_MONTH,
+      slug: `pay-card-${nextYm}`,
+      description: `[прогноз] Гашение ОД с ЗП за ${label} (база ~100к → к 0)`,
+      merchant: "Погашение ОД",
+      account: "Банк",
+      categoryName: "Переводы",
+    });
+
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return out;
+}
+
+function buildPlan(): Planned[] {
+  const VAC_BIG = 126_000;
+  const VAC_SHORT = 31_400;
+  /** Оценка ОД к 11.11: факт 200к + хвост базы до отпуска */
+  const PAY_FULL_NOV = 240_000;
+  /** Оценка ОД к янв. ЗП: база дек/янв после нуля 11.11 */
+  const PAY_FULL_JAN = 105_000;
+
+  const special: Planned[] = [
+    // —— доходы → Банк (с 30.10; окт. аванс уже в START_DEBIT) ——
     {
       date: "2026-11-10",
       kind: "income",
@@ -165,10 +279,10 @@ function buildPlan(): Planned[] {
     {
       date: "2026-11-25",
       kind: "income",
-      amount: 55_000,
-      slug: "advance-nov-reduced",
+      amount: AVG_HALF,
+      slug: "advance-nov-full",
       description:
-        "[прогноз] Аванс ноябрь урезанный (работа ~1–13.11, с 14-го отпуск)",
+        "[прогноз] Аванс ноябрь полный (работа до 14.11; с 14-го отпуск)",
       merchant: "Зарплата (аванс)",
       account: "Банк",
     },
@@ -182,32 +296,23 @@ function buildPlan(): Planned[] {
       merchant: "Отпускные",
       account: "Банк",
     },
-    {
-      date: "2026-12-10",
-      kind: "income",
-      amount: 48_000,
-      slug: "salary-nov-remainder",
-      description:
-        "[прогноз] Остаток ЗП за ноябрь (после отпускных; в осн. 30.11)",
-      merchant: "Зарплата",
-      account: "Банк",
-    },
+    // ЗП в декабре нет: ноябрь закрыт отпускными+авансом; декабрь → январь
     {
       date: "2027-01-09",
       kind: "income",
       amount: 200_000,
       slug: "salary-dec-jan",
       description:
-        "[прогноз] ЗП+аванс за декабрь в январе (минус уже выплаченные отпускные 3–6.12)",
+        "[прогноз] ЗП за декабрь в январе (в декабре выплаты ЗП нет; минус уже выданные отпускные 3–6.12)",
       merchant: "Зарплата",
       account: "Банк",
     },
 
-    // —— дебет: аренда / коммуналка / развлечения ——
+    // —— дебет: аренда / коммуналка / развлечения (НГ-хвост) ——
     {
       date: "2026-11-10",
       kind: "expense",
-      amount: 52_000,
+      amount: RENT,
       slug: "rent-nov",
       description: "[прогноз] Аренда ноябрь",
       merchant: "Аренда",
@@ -217,7 +322,7 @@ function buildPlan(): Planned[] {
     {
       date: "2026-12-10",
       kind: "expense",
-      amount: 52_000,
+      amount: RENT,
       slug: "rent-dec",
       description: "[прогноз] Аренда декабрь",
       merchant: "Аренда",
@@ -227,7 +332,7 @@ function buildPlan(): Planned[] {
     {
       date: "2027-01-10",
       kind: "expense",
-      amount: 52_000,
+      amount: RENT,
       slug: "rent-jan",
       description: "[прогноз] Аренда январь",
       merchant: "Аренда",
@@ -317,12 +422,12 @@ function buildPlan(): Planned[] {
 
     // —— кредитка: только база (большой отпуск не трогаем) ——
     {
-      date: "2026-10-25",
+      date: "2026-11-05",
       kind: "expense",
-      amount: 80_000,
-      slug: "base-oct20-nov13",
+      amount: 40_000,
+      slug: "base-nov1-13",
       description:
-        "[прогноз] База 20.10–13.11 с кредитки (~25 дн × ~3.2к)",
+        "[прогноз] Хвост базы 1–13.11 с кредитки (~13 дн × ~3.1к; до отпуска)",
       merchant: "Базовые расходы",
       account: "Карта",
     },
@@ -355,37 +460,14 @@ function buildPlan(): Planned[] {
       account: "Карта",
     },
 
-    // —— гашение кредитки с дебета (после зарплатных дат) ——
-    // гашения: суммы ориентир; фактический ОД смотреть по выписке после поездки
-    {
-      date: "2026-10-24",
-      kind: "transfer",
-      amount: 80_000,
-      slug: "pay-card-oct-advance",
-      description:
-        "[прогноз] Гашение кредитки с аванса (цель: снизить ОД до зарплаты)",
-      merchant: "Погашение ОД",
-      account: "Банк",
-      categoryName: "Переводы",
-    },
-    {
-      date: "2026-11-10",
-      kind: "transfer",
-      amount: 100_000,
-      slug: "pay-card-nov-salary",
-      description:
-        "[прогноз] Гашение кредитки с ЗП (после аренды 52к)",
-      merchant: "Погашение ОД",
-      account: "Банк",
-      categoryName: "Переводы",
-    },
+    // —— гашение: одним объёмом до НГ ——
     {
       date: "2026-11-11",
       kind: "transfer",
-      amount: 50_000,
-      slug: "pay-card-nov-vacation",
+      amount: PAY_FULL_NOV,
+      slug: "pay-card-nov-full",
       description:
-        "[прогноз] Гашение с отпускных → снизить ОД (хвост поездки гасим позже)",
+        "[прогноз] Полное гашение ОД после ЗП+отпускных−аренда (кэш копили до полного объёма)",
       merchant: "Погашение ОД",
       account: "Банк",
       categoryName: "Переводы",
@@ -393,15 +475,109 @@ function buildPlan(): Planned[] {
     {
       date: "2027-01-09",
       kind: "transfer",
-      amount: 130_000,
-      slug: "pay-card-jan",
+      amount: PAY_FULL_JAN,
+      slug: "pay-card-jan-full",
       description:
-        "[прогноз] Гашение с дек. ЗП (база дек/янв + хвост поездки) → к 0 по ОД",
+        "[прогноз] Гашение накопившейся базы дек/янв с январской ЗП → к 0 по ОД",
+      merchant: "Погашение ОД",
+      account: "Банк",
+      categoryName: "Переводы",
+    },
+
+    // —— хвост января после нуля 09.01 (до входа в регулярную базу с фев) ——
+    {
+      date: "2027-01-20",
+      kind: "expense",
+      amount: 66_000,
+      slug: "base-jan11-31",
+      description:
+        "[прогноз] База 11–31.01 с кредитки (~20 дн × ~3.3к; после гашения 09.01)",
+      merchant: "Базовые расходы",
+      account: "Карта",
+    },
+    {
+      date: "2027-01-15",
+      kind: "expense",
+      amount: UTILITIES,
+      slug: "utilities-jan",
+      description: "[прогноз] Коммуналка / дом январь 2027",
+      merchant: "Коммуналка",
+      account: "Банк",
+    },
+    {
+      date: "2027-01-25",
+      kind: "income",
+      amount: AVG_HALF,
+      slug: "advance-jan",
+      description: "[прогноз] Аванс январь 2027",
+      merchant: "Зарплата (аванс)",
+      account: "Банк",
+    },
+    // ЗП за январь + аренда фев + гашение янв. базы → 10.02
+    {
+      date: "2027-02-10",
+      kind: "income",
+      amount: AVG_HALF,
+      slug: "salary-jan",
+      description: "[прогноз] ЗП за январь 2027",
+      merchant: "Зарплата",
+      account: "Банк",
+    },
+    {
+      date: "2027-02-10",
+      kind: "expense",
+      amount: RENT,
+      slug: "rent-feb",
+      description: "[прогноз] Аренда февраль 2027",
+      merchant: "Аренда",
+      account: "Банк",
+      categoryName: "аренда",
+    },
+    {
+      date: "2027-02-10",
+      kind: "transfer",
+      amount: 66_000,
+      slug: "pay-card-feb",
+      description:
+        "[прогноз] Гашение ОД с ЗП за январь (база 11–31.01 → к 0)",
       merchant: "Погашение ОД",
       account: "Банк",
       categoryName: "Переводы",
     },
   ];
+
+  // Регулярная база фев–июнь 2027 → ЗП/аренда/гашение до 10.07 (лето)
+  const base = buildBaseMonths("2027-02", "2027-06");
+
+  const extras: Planned[] = [
+    // остаток долга маме — ближайшая возможность после НГ (аванс 25.01;
+    // до этого после аренды 10.01 на руках ~54к < 60к)
+    {
+      date: "2027-01-25",
+      kind: "expense",
+      amount: 60_000,
+      slug: "debt-mom-remainder",
+      description:
+        "[прогноз] Остаток долга маме (60к) — сразу после аванса, первая возможность после НГ",
+      merchant: "Долг / мама",
+      account: "Банк",
+      categoryName: "Долг",
+    },
+    // Питер с дочей в июне — после ЗП 10.06 (за май)
+    {
+      date: "2027-06-15",
+      kind: "expense",
+      amount: 150_000,
+      slug: "trip-spb-june",
+      description:
+        "[прогноз] Поездка в Питер с дочей (~150к) — с дебета",
+      merchant: "Путешествия / Питер",
+      account: "Банк",
+      categoryName: "Путешествия",
+    },
+  ];
+
+  return [...special, ...base, ...extras];
 }
 
 function simulate(plan: Planned[]) {
