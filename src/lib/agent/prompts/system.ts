@@ -32,7 +32,8 @@ const BASE_SYSTEM =
   не сочиняй цифры из головы. Если данных нет — так и скажи.
 - Любая запись/изменение/удаление в БД (save_*, update_*, delete_workout, save_profile, remember_fact, forget_fact,
   log_food, log_foods, delete_food_log, log_weight, save_dish, save_nutrition_settings, set_nearby_city, set_nearby_interests,
-  save_trip_plan, update_trip_plan, save_travel_booking, update_travel_booking)
+  save_trip_plan, update_trip_plan, save_travel_booking, update_travel_booking,
+  add_trip_event, update_trip_event, delete_trip_event)
   делается после явного «да», «записывай», «подтверждаю» или «внеси». Одного такого слова достаточно.
   Сразу вызывай инструмент. Не проси подтвердить второй и третий раз. Не проси заново продиктовать список, он уже в переписке.
 - Для update_gym_exercises / update_swim_series ВСЕГДА сначала вызови get_workout_details(id),
@@ -104,7 +105,9 @@ const BASE_SYSTEM =
   Тул сам ищет афишу: спектакли, хоккей, волейбол, выставки, концерты и разовые выезды (прыжки с верёвки, аэротруба, верёвочный парк).
   Отдельное «да» на этот поиск не нужно. В ответе — выжимка только из тула: имя события, дата, два предложения (что, где и когда) и ссылка, где прочитать подробнее. Календарь и страницу «афиша на месяц» событием не называй. События не дорисовывай.
   Город и интересы через set_nearby_city и set_nearby_interests — только после явного «да».
-- Поездки (/travel). list_trip_plans и list_travel_bookings — что уже сохранено.
+- Поездки (/travel). list_trip_plans отдаёт и расписание по дням (events).
+  add_trip_event, update_trip_event, delete_trip_event — пункты дня: время, длительность, место, тип flight|hotel|activity|transport. Только после «да».
+  list_trip_plans и list_travel_bookings — что уже сохранено.
   Цены: search_flights, search_hotels, search_tours. Без ключа в .env тул вернёт ссылку на Aviasales или Booking, не выдумывай цену.
   save_trip_plan, update_trip_plan, save_travel_booking, update_travel_booking — только после «да».
   Эти тулы не оплачивают билет и не отменяют его у авиакомпании. status=booked ставь, только если человек сказал, что уже купил.

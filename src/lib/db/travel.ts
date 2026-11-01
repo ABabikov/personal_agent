@@ -9,6 +9,19 @@ import type {
 type PlanRow = Database["public"]["Tables"]["trip_plans"]["Row"];
 type BookingRow = Database["public"]["Tables"]["travel_bookings"]["Row"];
 
+export type TripEventType = "flight" | "hotel" | "activity" | "transport";
+
+export type TripEvent = {
+  id: string;
+  date: string;
+  title: string;
+  description: string;
+  location: string;
+  time: string;
+  duration: number;
+  type: TripEventType;
+};
+
 export type TripPlan = {
   id: string;
   title: string;
@@ -18,6 +31,7 @@ export type TripPlan = {
   budgetRub: number | null;
   travelers: number;
   notes: string;
+  events: TripEvent[];
   status: TripPlanStatus;
   updatedAt: string;
 };
@@ -44,10 +58,44 @@ function dbError(message: string): string {
   return message;
 }
 
+const EVENT_TYPES: TripEventType[] = ["flight", "hotel", "activity", "transport"];
+
+function asRecord(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw as Record<string, unknown>;
+}
+
 function notesOf(raw: PlanRow["plan_data"]): string {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
-  const notes = (raw as { notes?: unknown }).notes;
+  const notes = asRecord(raw).notes;
   return typeof notes === "string" ? notes : "";
+}
+
+function eventsOf(raw: PlanRow["plan_data"]): TripEvent[] {
+  const list = asRecord(raw).events;
+  if (!Array.isArray(list)) return [];
+  const out: TripEvent[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const date = typeof row.date === "string" ? row.date.slice(0, 10) : "";
+    if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const type = EVENT_TYPES.includes(row.type as TripEventType)
+      ? (row.type as TripEventType)
+      : "activity";
+    const duration = typeof row.duration === "number" && row.duration > 0 ? row.duration : 60;
+    out.push({
+      id: typeof row.id === "string" && row.id ? row.id : crypto.randomUUID(),
+      date,
+      title,
+      description: typeof row.description === "string" ? row.description : "",
+      location: typeof row.location === "string" ? row.location : "",
+      time: typeof row.time === "string" ? row.time : "",
+      duration,
+      type,
+    });
+  }
+  return out;
 }
 
 function toPlan(row: PlanRow): TripPlan {
@@ -60,6 +108,7 @@ function toPlan(row: PlanRow): TripPlan {
     budgetRub: row.budget_rub,
     travelers: row.travelers_count,
     notes: notesOf(row.plan_data),
+    events: eventsOf(row.plan_data),
     status: row.status,
     updatedAt: row.updated_at,
   };
@@ -118,7 +167,7 @@ export async function saveTripPlan(
       end_date: input.endDate || null,
       budget_rub: input.budgetRub ?? null,
       travelers_count: input.travelers && input.travelers > 0 ? input.travelers : 1,
-      plan_data: { notes: input.notes?.trim() || "" },
+      plan_data: { notes: input.notes?.trim() || "", events: [] },
       status: input.status ?? "draft",
     })
     .select("*")
@@ -151,7 +200,17 @@ export async function updateTripPlan(
   if (patch.budgetRub !== undefined) update.budget_rub = patch.budgetRub;
   if (patch.travelers != null) update.travelers_count = patch.travelers;
   if (patch.status != null) update.status = patch.status;
-  if (patch.notes != null) update.plan_data = { notes: patch.notes.trim() };
+  if (patch.notes != null) {
+    const existing = await supabase
+      .from("trip_plans")
+      .select("plan_data")
+      .eq("user_id", userId)
+      .eq("id", id)
+      .maybeSingle();
+    if (existing.error) return { error: dbError(existing.error.message) };
+    const current = asRecord(existing.data?.plan_data ?? null);
+    update.plan_data = { ...current, notes: patch.notes.trim() };
+  }
   const { data, error } = await supabase
     .from("trip_plans")
     .update(update)
@@ -245,4 +304,147 @@ export async function updateTravelBooking(
   if (error) return { error: dbError(error.message) };
   if (!data) return { error: "Бронь не найдена." };
   return { booking: toBooking(data) };
+}
+
+export type TripEventInput = {
+  date: string;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  time?: string | null;
+  duration?: number | null;
+  type?: TripEventType | null;
+};
+
+async function writeEvents(
+  userId: string,
+  planId: string,
+  events: TripEvent[]
+): Promise<{ plan: TripPlan } | { error: string }> {
+  const existing = await supabase
+    .from("trip_plans")
+    .select("plan_data")
+    .eq("user_id", userId)
+    .eq("id", planId)
+    .maybeSingle();
+  if (existing.error) return { error: dbError(existing.error.message) };
+  if (!existing.data) return { error: "План не найден." };
+  const current = asRecord(existing.data.plan_data);
+  const { data, error } = await supabase
+    .from("trip_plans")
+    .update({
+      plan_data: { ...current, events },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("id", planId)
+    .select("*")
+    .maybeSingle();
+  if (error) return { error: dbError(error.message) };
+  if (!data) return { error: "План не найден." };
+  return { plan: toPlan(data) };
+}
+
+function normalizeEvent(input: TripEventInput, id: string): TripEvent | { error: string } {
+  const title = input.title.trim();
+  const date = input.date.trim().slice(0, 10);
+  if (!title) return { error: "Нужно название пункта." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Дата пункта — в формате YYYY-MM-DD." };
+  const type = input.type && EVENT_TYPES.includes(input.type) ? input.type : "activity";
+  const duration = input.duration && input.duration > 0 ? Math.round(input.duration) : 60;
+  return {
+    id,
+    date,
+    title,
+    description: input.description?.trim() || "",
+    location: input.location?.trim() || "",
+    time: input.time?.trim() || "",
+    duration,
+    type,
+  };
+}
+
+export async function addTripEvent(
+  userId: string,
+  planId: string,
+  input: TripEventInput
+): Promise<{ plan: TripPlan; event: TripEvent } | { error: string }> {
+  const event = normalizeEvent(input, crypto.randomUUID());
+  if ("error" in event) return event;
+  const existing = await supabase
+    .from("trip_plans")
+    .select("plan_data")
+    .eq("user_id", userId)
+    .eq("id", planId)
+    .maybeSingle();
+  if (existing.error) return { error: dbError(existing.error.message) };
+  if (!existing.data) return { error: "План не найден." };
+  const events = [...eventsOf(existing.data.plan_data), event].sort(bySchedule);
+  const saved = await writeEvents(userId, planId, events);
+  if ("error" in saved) return saved;
+  return { plan: saved.plan, event };
+}
+
+export async function updateTripEvent(
+  userId: string,
+  planId: string,
+  eventId: string,
+  patch: Partial<TripEventInput>
+): Promise<{ plan: TripPlan } | { error: string }> {
+  const existing = await supabase
+    .from("trip_plans")
+    .select("plan_data")
+    .eq("user_id", userId)
+    .eq("id", planId)
+    .maybeSingle();
+  if (existing.error) return { error: dbError(existing.error.message) };
+  if (!existing.data) return { error: "План не найден." };
+  const events = eventsOf(existing.data.plan_data);
+  const current = events.find((event) => event.id === eventId);
+  if (!current) return { error: "Пункт расписания не найден." };
+  const next = normalizeEvent(
+    {
+      date: patch.date ?? current.date,
+      title: patch.title ?? current.title,
+      description: patch.description ?? current.description,
+      location: patch.location ?? current.location,
+      time: patch.time ?? current.time,
+      duration: patch.duration ?? current.duration,
+      type: patch.type ?? current.type,
+    },
+    current.id
+  );
+  if ("error" in next) return next;
+  return writeEvents(
+    userId,
+    planId,
+    events.map((event) => (event.id === eventId ? next : event)).sort(bySchedule)
+  );
+}
+
+export async function deleteTripEvent(
+  userId: string,
+  planId: string,
+  eventId: string
+): Promise<{ plan: TripPlan } | { error: string }> {
+  const existing = await supabase
+    .from("trip_plans")
+    .select("plan_data")
+    .eq("user_id", userId)
+    .eq("id", planId)
+    .maybeSingle();
+  if (existing.error) return { error: dbError(existing.error.message) };
+  if (!existing.data) return { error: "План не найден." };
+  const events = eventsOf(existing.data.plan_data);
+  if (!events.some((event) => event.id === eventId)) return { error: "Пункт расписания не найден." };
+  return writeEvents(
+    userId,
+    planId,
+    events.filter((event) => event.id !== eventId)
+  );
+}
+
+function bySchedule(a: TripEvent, b: TripEvent): number {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+  return (a.time || "99:99").localeCompare(b.time || "99:99");
 }

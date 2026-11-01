@@ -51,10 +51,13 @@ import {
   setNearbyInterestsTool,
 } from "@/lib/agent/tools/nearby";
 import {
+  addTripEventTool,
+  deleteTripEventTool,
   listTravelBookingsTool,
   listTripPlansTool,
   saveTravelBookingTool,
   saveTripPlanTool,
+  updateTripEventTool,
   searchFlightsTool,
   searchHotelsTool,
   searchToursTool,
@@ -148,6 +151,9 @@ export const AGENT_TOOLS: AgentTool[] = [
   listTripPlansTool,
   saveTripPlanTool,
   updateTripPlanTool,
+  addTripEventTool,
+  updateTripEventTool,
+  deleteTripEventTool,
   listTravelBookingsTool,
   saveTravelBookingTool,
   updateTravelBookingTool,

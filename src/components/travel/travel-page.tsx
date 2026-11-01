@@ -15,6 +15,7 @@ import {
   type TripPlan,
 } from "@/lib/db/travel";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
+import { TripSchedule } from "@/components/travel/trip-schedule";
 
 type SearchKind = "flight" | "hotel" | "tour";
 
@@ -60,7 +61,7 @@ export function TravelPage() {
   const summary = useMemo(() => {
     const lines = plans.slice(0, 6).map((p) => {
       const when = [p.startDate, p.endDate].filter(Boolean).join(" — ");
-      return `${p.title} → ${p.destination}${when ? `, ${when}` : ""}, ${p.status}`;
+      return `${p.title} → ${p.destination}${when ? `, ${when}` : ""}, ${p.status}, пунктов ${p.events.length}`;
     });
     return lines.join("\n");
   }, [plans]);
@@ -224,6 +225,10 @@ export function TravelPage() {
         ))}
         {plans.length === 0 && <p className="text-sm text-muted-foreground">Планов пока нет.</p>}
       </div>
+
+      {selected && userId && (
+        <TripSchedule userId={userId} plan={selected} onChanged={() => reload(userId, selected.id)} />
+      )}
 
       {selected && (
         <Card>

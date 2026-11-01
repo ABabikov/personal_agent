@@ -1,11 +1,15 @@
 import type { AgentTool } from "@/lib/agent/tools/types";
 import {
+  addTripEvent,
+  deleteTripEvent,
   listTravelBookings,
   listTripPlans,
   saveTravelBooking,
   saveTripPlan,
   updateTravelBooking,
+  updateTripEvent,
   updateTripPlan,
+  type TripEventType,
 } from "@/lib/db/travel";
 import { searchFlights, searchHotels, searchTours } from "@/lib/features/travel/search";
 import type { TravelBookingKind, TravelBookingStatus, TripPlanStatus } from "@/types/database";
@@ -13,6 +17,7 @@ import type { TravelBookingKind, TravelBookingStatus, TripPlanStatus } from "@/t
 const PLAN_STATUS = ["draft", "confirmed", "completed", "cancelled"] as const;
 const BOOKING_KIND = ["flight", "hotel", "tour", "cruise", "other"] as const;
 const BOOKING_STATUS = ["draft", "held", "booked", "cancelled"] as const;
+const EVENT_TYPE = ["flight", "hotel", "activity", "transport"] as const;
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -33,7 +38,7 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[]): T | null {
 export const listTripPlansTool: AgentTool = {
   name: "list_trip_plans",
   description:
-    "Планы поездок пользователя: направление, даты, бюджет, статус. Ничего не ищет у авиакомпаний. Для цен вызови search_flights, search_hotels или search_tours.",
+    "Планы поездок и расписание по дням (events: дата, время, длительность, тип flight|hotel|activity|transport). Ничего не ищет у авиакомпаний.",
   parameters: { type: "object", properties: {}, additionalProperties: false },
   execute: async (_args, ctx) => {
     const res = await listTripPlans(ctx.userId);
@@ -265,6 +270,94 @@ export const searchHotelsTool: AgentTool = {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  },
+};
+
+export const addTripEventTool: AgentTool = {
+  name: "add_trip_event",
+  description:
+    "Добавляет пункт в расписание поездки: день, время, длительность в минутах, место. Тип: flight, hotel, activity, transport. Только после явного «да». planId — из list_trip_plans.",
+  parameters: {
+    type: "object",
+    properties: {
+      planId: { type: "string" },
+      date: { type: "string", description: "YYYY-MM-DD" },
+      title: { type: "string" },
+      time: { type: "string", description: "HH:MM, можно пусто" },
+      duration: { type: "number", description: "Минуты, по умолчанию 60" },
+      location: { type: "string" },
+      description: { type: "string" },
+      type: { type: "string", description: "flight | hotel | activity | transport" },
+    },
+    required: ["planId", "date", "title"],
+    additionalProperties: false,
+  },
+  execute: async (args, ctx) => {
+    const res = await addTripEvent(ctx.userId, str(args.planId), {
+      date: str(args.date),
+      title: str(args.title),
+      time: str(args.time) || null,
+      duration: num(args.duration),
+      location: str(args.location) || null,
+      description: str(args.description) || null,
+      type: oneOf<TripEventType>(args.type, EVENT_TYPE),
+    });
+    if ("error" in res) return { ok: false, error: res.error };
+    return { ok: true, data: { event: res.event, planId: res.plan.id } };
+  },
+};
+
+export const updateTripEventTool: AgentTool = {
+  name: "update_trip_event",
+  description:
+    "Меняет пункт расписания поездки. Только после явного «да». eventId бери из events плана в list_trip_plans.",
+  parameters: {
+    type: "object",
+    properties: {
+      planId: { type: "string" },
+      eventId: { type: "string" },
+      date: { type: "string" },
+      title: { type: "string" },
+      time: { type: "string" },
+      duration: { type: "number" },
+      location: { type: "string" },
+      description: { type: "string" },
+      type: { type: "string" },
+    },
+    required: ["planId", "eventId"],
+    additionalProperties: false,
+  },
+  execute: async (args, ctx) => {
+    const res = await updateTripEvent(ctx.userId, str(args.planId), str(args.eventId), {
+      date: str(args.date) || undefined,
+      title: str(args.title) || undefined,
+      time: str(args.time) || undefined,
+      duration: num(args.duration) ?? undefined,
+      location: str(args.location) || undefined,
+      description: str(args.description) || undefined,
+      type: oneOf<TripEventType>(args.type, EVENT_TYPE) ?? undefined,
+    });
+    if ("error" in res) return { ok: false, error: res.error };
+    return { ok: true, data: { planId: res.plan.id, events: res.plan.events } };
+  },
+};
+
+export const deleteTripEventTool: AgentTool = {
+  name: "delete_trip_event",
+  description: "Удаляет пункт расписания поездки. Только после явного «да».",
+  parameters: {
+    type: "object",
+    properties: {
+      planId: { type: "string" },
+      eventId: { type: "string" },
+    },
+    required: ["planId", "eventId"],
+    additionalProperties: false,
+  },
+  execute: async (args, ctx) => {
+    const res = await deleteTripEvent(ctx.userId, str(args.planId), str(args.eventId));
+    if ("error" in res) return { ok: false, error: res.error };
+    return { ok: true, data: { planId: res.plan.id, events: res.plan.events } };
   },
 };
 
