@@ -47,7 +47,7 @@
 
 `chatCompletion` (`src/lib/agent/llm/openrouter.ts`):
 
-- Цепочка OpenRouter по умолчанию: `openrouter/free`, затем `poolside/laguna-s-2.1:free` и `nvidia/nemotron-3-ultra-550b-a55b:free`. Переопределяется `OPENROUTER_LLM_FALLBACKS`. Qwen plus/flash/max, Claude Sonnet 4 и Gemini 2.0 Flash из цепочки убраны: квота Qwen кончилась (403), две модели OpenRouter сняты (404).
+- Цепочка OpenRouter по умолчанию: `openrouter/free`, затем `cohere/north-mini-code:free` и `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`. Переопределяется `OPENROUTER_LLM_FALLBACKS`. В запрос к OpenRouter уходит `reasoning.enabled=false`: иначе бесплатная reasoning-модель съедает `max_tokens` и ответ приходит пустым. Qwen plus/flash/max, Claude Sonnet 4, Gemini 2.0 Flash и `poolside/laguna-s-2.1:free` из цепочки убраны (403 / 404).
 - Для каждой модели: один HTTP-POST на `${OPENROUTER_BASE_URL}/chat/completions`.
 - **Retryable**: HTTP 402, 403, 404, 429, 503 → переходим к следующей модели и записываем попытку в `attempts`. 403 `FreeTierOnly` — кончилась бесплатная квота Qwen.
 - Если у второго провайдера есть ключ (OpenRouter ↔ DashScope), после цепочки основного пробуем его встроенные модели. Имена из env текущего провайдера на чужой хост не отправляются.

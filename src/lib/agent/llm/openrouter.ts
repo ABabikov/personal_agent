@@ -189,10 +189,13 @@ async function attemptModel(args: {
   const { model, input, temperature, attempts } = args;
   let effectiveMaxTokens = pickMaxTokens(model, args.maxTokens);
   let reducedForAfford = false;
+  /** off — не тратить лимит на рассуждение; default — как решит модель. */
+  let reasoningMode: "off" | "default" =
+    args.provider === "openrouter" ? "off" : "default";
+  let flippedReasoning = false;
 
-  // Внутренний повтор: при 402 «can only afford N» ужимаем max_tokens под бюджет
-  // и пробуем ТУ ЖЕ модель ещё раз, прежде чем уходить на фоллбек.
-  for (let localTry = 0; localTry < 2; localTry++) {
+  // Внутренние повторы той же модели: 402 под бюджет, либо 400 «reasoning mandatory».
+  for (let localTry = 0; localTry < 3; localTry++) {
     log(
       "info",
       `chat trying ${args.provider}/${model} (${args.index + 1}/${args.chainLength})` +
@@ -209,6 +212,11 @@ async function attemptModel(args: {
         max_tokens: effectiveMaxTokens,
         messages: input.messages.map(toApiMessage),
       };
+      // Иначе reasoning-модель съедает max_tokens и content остаётся пустым.
+      // Часть бесплатных эндпоинтов отвечает 400 «reasoning is mandatory» — тогда повтор без флага.
+      if (reasoningMode === "off") {
+        body.reasoning = { enabled: false };
+      }
       if (input.tools && input.tools.length > 0) {
         body.tools = input.tools;
         body.tool_choice = input.toolChoice ?? "auto";
@@ -244,6 +252,19 @@ async function attemptModel(args: {
         return null;
       }
 
+      if (response.status === 400 && !flippedReasoning && reasoningMode === "off") {
+        const errText = await safeText(response);
+        if (/reasoning is mandatory/i.test(errText)) {
+          flippedReasoning = true;
+          reasoningMode = "default";
+          log("warn", `model ${model} требует reasoning — повтор без отключения`);
+          continue;
+        }
+        log("warn", `model ${model} returned 400 — trying next`, { errText });
+        attempts.push({ model, status: 400, error: errText.slice(0, 300) });
+        return null;
+      }
+
       if (RETRYABLE_STATUSES.has(response.status) || !response.ok) {
         const errText = await safeText(response);
         if (isFreeQuotaExhausted(errText)) skipModelForQuota(model);
@@ -260,7 +281,7 @@ async function attemptModel(args: {
         return null;
       }
       const msg = choices[0].message ?? {};
-      const content: string | null = typeof msg.content === "string" ? msg.content : null;
+      const content = extractMessageText(msg.content);
       const toolCalls: ToolCallDescriptor[] = Array.isArray(msg.tool_calls)
         ? msg.tool_calls.map((tc: ToolCallDescriptor) => ({
             id: tc.id,
@@ -310,6 +331,24 @@ async function attemptModel(args: {
   }
 
   return null;
+}
+
+/** Строка, массив text-частей, либо пусто. Пробелы без букв считаем пустым ответом. */
+function extractMessageText(content: unknown): string | null {
+  let text = "";
+  if (typeof content === "string") text = content;
+  else if (Array.isArray(content)) {
+    text = content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
+          return (part as { text: string }).text;
+        }
+        return "";
+      })
+      .join("");
+  }
+  return text.trim().length > 0 ? text : null;
 }
 
 function toApiMessage(m: ChatMessageForApi): Record<string, unknown> {

@@ -47,9 +47,13 @@ export function getUsdRateRub(): number {
   return envNumber("NEXT_PUBLIC_EXPENSE_USD_RATE", 95);
 }
 
-/** ОД кредитки, ₽. */
+/**
+ * ОД кредитки, ₽.
+ * Якорь на 01.11.2026: лимит 1 150 000 − доступно по выписке 936 281.32.
+ * Неподтверждённые 14 482 в эту цифру не входят.
+ */
 export function getCardDebtRub(): number {
-  return envNumber("NEXT_PUBLIC_EXPENSE_CARD_DEBT", 200_000);
+  return envNumber("NEXT_PUBLIC_EXPENSE_CARD_DEBT", 213_719);
 }
 
 export function buildPositionSnapshot(
@@ -91,7 +95,7 @@ export function buildPositionSnapshot(
       id: "card-debt",
       label: "Долг кредитки",
       amountRub: cardDebtRub,
-      detail: "ОД",
+      detail: "ОД на 01.11",
       side: "liability",
     });
   }

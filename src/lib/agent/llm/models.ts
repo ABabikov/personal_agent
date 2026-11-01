@@ -88,11 +88,15 @@ export function hasLlmApiKey(): boolean {
   }
 }
 
-/** Бесплатные модели OpenRouter: длинный промпт и tool call проходят без кредитов. */
+/**
+ * Бесплатные модели OpenRouter: длинный промпт и tool call проходят без кредитов.
+ * poolside/laguna снята (404). Ultra и роутер free на reasoning-моделях
+ * съедали max_tokens и возвращали пустой content — см. reasoning.enabled=false в клиенте.
+ */
 const FREE_OPENROUTER_CHAIN = [
   "openrouter/free",
-  "poolside/laguna-s-2.1:free",
-  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "cohere/north-mini-code:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
 ];
 
 function defaultPrimaryLlm(): string {
@@ -120,6 +124,7 @@ const DEAD_LLM_MODELS = new Set([
   "anthropic/claude-sonnet-4",
   "google/gemini-2.0-flash-001",
   "google/gemini-2.0-flash",
+  "poolside/laguna-s-2.1:free",
 ]);
 
 const OPENROUTER_BUILTIN_CHAIN = [...FREE_OPENROUTER_CHAIN];
