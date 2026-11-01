@@ -31,6 +31,12 @@ export type ExpenseRuleOrigin = "manual" | "llm" | "learned";
 
 export type NearbyEventSource = "kudago" | "web";
 
+export type TripPlanStatus = "draft" | "confirmed" | "completed" | "cancelled";
+
+export type TravelBookingKind = "flight" | "hotel" | "tour" | "cruise" | "other";
+
+export type TravelBookingStatus = "draft" | "held" | "booked" | "cancelled";
+
 export type ToolCallDescriptor = {
   id: string;
   type: "function";
@@ -1060,6 +1066,78 @@ export interface Database {
           fetched_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["nearby_events"]["Insert"]>;
+        Relationships: [];
+      };
+      trip_plans: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          destination: string;
+          start_date: string | null;
+          end_date: string | null;
+          budget_rub: number | null;
+          travelers_count: number;
+          plan_data: Record<string, unknown>;
+          status: TripPlanStatus;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          destination: string;
+          start_date?: string | null;
+          end_date?: string | null;
+          budget_rub?: number | null;
+          travelers_count?: number;
+          plan_data?: Record<string, unknown>;
+          status?: TripPlanStatus;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["trip_plans"]["Insert"]>;
+        Relationships: [];
+      };
+      travel_bookings: {
+        Row: {
+          id: string;
+          user_id: string;
+          trip_plan_id: string | null;
+          kind: TravelBookingKind;
+          title: string;
+          provider: string | null;
+          external_ref: string | null;
+          status: TravelBookingStatus;
+          price_rub: number | null;
+          currency: string;
+          starts_at: string | null;
+          ends_at: string | null;
+          url: string | null;
+          payload: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          trip_plan_id?: string | null;
+          kind: TravelBookingKind;
+          title: string;
+          provider?: string | null;
+          external_ref?: string | null;
+          status?: TravelBookingStatus;
+          price_rub?: number | null;
+          currency?: string;
+          starts_at?: string | null;
+          ends_at?: string | null;
+          url?: string | null;
+          payload?: Record<string, unknown>;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["travel_bookings"]["Insert"]>;
         Relationships: [];
       };
     };

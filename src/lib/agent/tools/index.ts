@@ -51,6 +51,17 @@ import {
   setNearbyInterestsTool,
 } from "@/lib/agent/tools/nearby";
 import {
+  listTravelBookingsTool,
+  listTripPlansTool,
+  saveTravelBookingTool,
+  saveTripPlanTool,
+  searchFlightsTool,
+  searchHotelsTool,
+  searchToursTool,
+  updateTravelBookingTool,
+  updateTripPlanTool,
+} from "@/lib/agent/tools/travel";
+import {
   getExpensesSummaryTool,
   getExpensesCategoryBreakdownTool,
   listExpenseTransactionsTool,
@@ -133,6 +144,16 @@ export const AGENT_TOOLS: AgentTool[] = [
   refreshNearbyFeedTool,
   setNearbyCityTool,
   setNearbyInterestsTool,
+  // поездки
+  listTripPlansTool,
+  saveTripPlanTool,
+  updateTripPlanTool,
+  listTravelBookingsTool,
+  saveTravelBookingTool,
+  updateTravelBookingTool,
+  searchFlightsTool,
+  searchHotelsTool,
+  searchToursTool,
 ];
 
 const TOOLS_BY_NAME = new Map(AGENT_TOOLS.map((t) => [t.name, t]));

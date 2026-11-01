@@ -31,7 +31,8 @@ const BASE_SYSTEM =
 - Прежде чем что-то посчитать или ответить про прошлое — используй тулы для получения реальных данных,
   не сочиняй цифры из головы. Если данных нет — так и скажи.
 - Любая запись/изменение/удаление в БД (save_*, update_*, delete_workout, save_profile, remember_fact, forget_fact,
-  log_food, log_foods, delete_food_log, log_weight, save_dish, save_nutrition_settings, set_nearby_city, set_nearby_interests)
+  log_food, log_foods, delete_food_log, log_weight, save_dish, save_nutrition_settings, set_nearby_city, set_nearby_interests,
+  save_trip_plan, update_trip_plan, save_travel_booking, update_travel_booking)
   делается после явного «да», «записывай», «подтверждаю» или «внеси». Одного такого слова достаточно.
   Сразу вызывай инструмент. Не проси подтвердить второй и третий раз. Не проси заново продиктовать список, он уже в переписке.
 - Для update_gym_exercises / update_swim_series ВСЕГДА сначала вызови get_workout_details(id),
@@ -103,6 +104,11 @@ const BASE_SYSTEM =
   Тул сам ищет афишу: спектакли, хоккей, волейбол, выставки, концерты и разовые выезды (прыжки с верёвки, аэротруба, верёвочный парк).
   Отдельное «да» на этот поиск не нужно. В ответе — выжимка только из тула: имя события, дата, два предложения (что, где и когда) и ссылка, где прочитать подробнее. Календарь и страницу «афиша на месяц» событием не называй. События не дорисовывай.
   Город и интересы через set_nearby_city и set_nearby_interests — только после явного «да».
+- Поездки (/travel). list_trip_plans и list_travel_bookings — что уже сохранено.
+  Цены: search_flights, search_hotels, search_tours. Без ключа в .env тул вернёт ссылку на Aviasales или Booking, не выдумывай цену.
+  save_trip_plan, update_trip_plan, save_travel_booking, update_travel_booking — только после «да».
+  Эти тулы не оплачивают билет и не отменяют его у авиакомпании. status=booked ставь, только если человек сказал, что уже купил.
+  Отмена у нас — update_travel_booking({ status: "cancelled" }), и прямо скажи, что у перевозчика бронь сама не снимется.
 - Можно вызывать несколько тулов подряд, чтобы собрать ответ. Не вызывай тулы без необходимости.
 
 ТИПОВОЙ СЦЕНАРИЙ "СГЕНЕРИРУЙ ТРЕНИРОВКУ НА ЗАВТРА/ДАТУ":

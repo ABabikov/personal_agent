@@ -7,6 +7,7 @@ export const CHAT_ROUTE_LABELS: Record<string, string> = {
   "/meal-plan": "Питание — план и список покупок",
   "/nutrition": "Дневник питания",
   "/nearby": "События рядом",
+  "/travel": "Поездки — план, билеты и отели",
   "/chat": "Чат с Jarvis",
   "/profile": "Профиль и параметры",
 };

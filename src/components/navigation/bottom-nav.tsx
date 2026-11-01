@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Compass,
   Dumbbell,
+  Plane,
   Waves,
   User,
   MessageSquare,
@@ -52,6 +53,11 @@ const NAV_ITEMS = [
     icon: Compass,
   },
   {
+    href: "/travel",
+    label: "Поездки",
+    icon: Plane,
+  },
+  {
     href: "/chat",
     label: "Чат",
     icon: MessageSquare,
@@ -68,7 +74,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/70 bg-background/95 shadow-[0_-8px_32px_-12px_rgba(0,0,0,0.35)] backdrop-blur-md supports-[backdrop-filter]:bg-background/90 safe-area-pb">
-      <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-2">
+      <div className="mx-auto flex h-16 max-w-2xl items-center justify-around px-1">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
