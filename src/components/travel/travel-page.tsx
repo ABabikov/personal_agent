@@ -15,6 +15,7 @@ import {
   type TripPlan,
 } from "@/lib/db/travel";
 import { getWorkoutUserId } from "@/lib/db/workoutUserId";
+import { AviasalesMap } from "@/components/travel/aviasales-map";
 import { TripSchedule } from "@/components/travel/trip-schedule";
 
 type SearchKind = "flight" | "hotel" | "tour";
@@ -225,6 +226,15 @@ export function TravelPage() {
         ))}
         {plans.length === 0 && <p className="text-sm text-muted-foreground">Планов пока нет.</p>}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Карта цен</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AviasalesMap originCity={origin} />
+        </CardContent>
+      </Card>
 
       {selected && userId && (
         <TripSchedule userId={userId} plan={selected} onChanged={() => reload(userId, selected.id)} />
